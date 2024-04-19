@@ -12,24 +12,24 @@ from snntorch import functional as SF
 ####################################################
 class HeavisideCustomFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, theta):
+    def forward(ctx, input, tau):
         ctx.save_for_backward(input)
-        assert theta > 0
-        return torch.where(torch.abs(input)<theta, 0, torch.sign(input)).float()
+        assert tau > 0
+        return torch.where(torch.abs(input)<tau, 0, torch.sign(input)).float()
 
     @staticmethod
     def backward(ctx, grad_output):
         grad_input = nn.functional.hardtanh(grad_output)
-        grad_theta = None
-        return grad_input, grad_theta
+        grad_tau = None
+        return grad_input, grad_tau
 
 
 class HeavisideCustom(nn.Module):
-    def __init__(self, theta):
+    def __init__(self, tau):
         super(HeavisideCustom, self).__init__()
 
-    def forward(self, x, theta=.15):
-        x = HeavisideCustomFunction.apply(x, theta)
+    def forward(self, x, tau=.15):
+        x = HeavisideCustomFunction.apply(x, tau)
         return x
     
 
@@ -41,10 +41,10 @@ class HeavisideCustom(nn.Module):
 #           bias=True, padding_mode='zeros', device=None, dtype=None)
     
 class cae_2(nn.Module):
-    def __init__(self, theta, channels, kernel_size, stride, padding):
+    def __init__(self, tau, channels, kernel_size, stride, padding):
         super(cae_2, self).__init__()
 
-        self.theta = theta
+        self.tau = tau
         self.kernel_size = kernel_size
         self.channels = channels
         self.stride = stride
@@ -57,7 +57,7 @@ class cae_2(nn.Module):
                                         nn.Conv3d(self.channels[0], 2, self.kernel_size,
                                                   stride=self.stride, padding='same'),
                                         nn.BatchNorm3d(num_features = 2),
-                                        HeavisideCustom(theta= self.theta)
+                                        HeavisideCustom(tau= self.tau)
                                     )
 
         self.decoder = nn.Sequential(
@@ -82,10 +82,10 @@ class cae_2(nn.Module):
 # Class to implement the bipolar CAE with 3 layers
 ######################################################
 class cae_3(nn.Module):
-    def __init__(self, theta, channels, kernel_size, stride, padding):
+    def __init__(self, tau, channels, kernel_size, stride, padding):
         super(cae_3, self).__init__()
 
-        self.theta = theta
+        self.tau = tau
         self.kernel_size = kernel_size
         self.channels = channels
         self.stride = stride
@@ -102,7 +102,7 @@ class cae_3(nn.Module):
                                         nn.Conv3d(self.channels[1], 2, self.kernel_size,
                                                   stride=self.stride, padding='same'),
                                         nn.BatchNorm3d(num_features = 2),
-                                        HeavisideCustom(theta= self.theta)
+                                        HeavisideCustom(tau= self.tau)
                                     )
 
         self.decoder = nn.Sequential(
@@ -339,3 +339,4 @@ class SNN_conv(nn.Module):
             amplitudes = self.sigmoid(mem_a)
 
         return frequencies, amplitudes
+    

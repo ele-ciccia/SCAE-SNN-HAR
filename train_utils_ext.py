@@ -20,20 +20,19 @@ def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
 
     #assert (Lambda >= 0 & alfa >= 0 & beta >= 0)
 
-    train_loss_list = []
-    val_loss_list = []
-    cae_loss_list = []
-    snn_loss_list = []
-    train_acc_list = []
-    val_acc_list = []
+    train_loss_list, val_loss_list = [], []
+    cae_loss_list, snn_loss_list = [], []
+    train_acc_list, val_acc_list = [], []
     counter = 0
     best_val_loss = float('inf')
-    loss_fn_snn = SF.ce_count_loss() if out_dec.lower() == 'rate' else SF.ce_temporal_loss()
+    loss_fn_snn = SF.ce_count_loss() if out_dec.lower() == 'rate' \
+                                     else SF.ce_temporal_loss()
 
     torch.autograd.set_detect_anomaly(True)
 
-    with tqdm.trange(epochs) as pbar:
-        for epoch in pbar:
+    #with tqdm.trange(epochs) as pbar:
+    #    for epoch in pbar:
+    for epoch in range(epochs):
             model.train()
             train_loss = 0.0
             train_acc = 0.0
@@ -60,7 +59,7 @@ def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
 
                 sparsity_reg = (torch.sum(abs(encoded))) / \
                                 torch.prod(torch.tensor(encoded.shape))
-            
+                #print(sparsity_reg.detach().cpu())
                 cae_loss = loss_fn_cae(decoded, X.float()) 
                 cae_loss_count += alfa*cae_loss.item()
 
