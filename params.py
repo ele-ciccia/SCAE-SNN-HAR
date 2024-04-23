@@ -5,7 +5,7 @@ params_train = {
                 "epochs": 25,
                 "acc_steps": None,
                 "l_rate": 1e-3,
-                "lambda_reg": 0.0,
+                "lambda_reg": 0.3,
                 "alpha": 0.99,
                 "beta": 0.01,
                 "patience": 100,
