@@ -21,7 +21,7 @@ params_cae = {
 }
 
 params_snn = {
-                "hidden_layers": [16,1],
+                "hidden_layers": [16,16,1],
                 "num_classes": 4,
                 "surrogate_grad": surrogate.atan(),
                 "learn_thr": True,

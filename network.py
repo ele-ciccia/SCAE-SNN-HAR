@@ -200,68 +200,73 @@ class snn_1(nn.Module):
 ###################################################
 class snn_2(nn.Module):
 
-    def __init__(self, input_dim, hidden, n_classes, timesteps, surr_grad, learn_thr):
+    def __init__(self, input_dim, hidden, n_classes, surr_grad, learn_thr, learn_beta):
         super(snn_2, self).__init__()
 
         self.input_dim = input_dim        
         self.hidden = hidden
         self.n_classes = n_classes
-        self.timesteps = timesteps
-        self.spike_grad = surr_grad
+        self.surr_grad = surr_grad
         self.learn_thr = learn_thr
+        self.learn_beta = learn_beta
 
-        # layer 1
+        # layer 1 
         self.fc_in = nn.Linear(in_features=input_dim, out_features=self.hidden[0])
-        self.lif_in = snn.Leaky(beta=torch.rand(self.hidden[0]), threshold=torch.rand(self.hidden[0]),
-                                learn_beta=True, learn_threshold=self.learn_thr, spike_grad=self.spike_grad)
+        self.lif_in = snn.Leaky(beta=torch.rand(self.hidden[0]), 
+                                threshold=torch.rand(self.hidden[0]),
+                                learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
+                                spike_grad=self.surr_grad)
 
         # layer 2 
-        self.fc_hidden = nn.Linear(in_features=self.hidden[0], out_features=self.hidden[1])
-        self.lif_hidden = snn.Leaky(beta=torch.rand(self.hidden[1]), threshold=torch.rand(self.hidden[1]),
-                                    learn_beta=True, learn_threshold=self.learn_thr, spike_grad=self.spike_grad)
-
+        self.fc_hidden1 = nn.Linear(in_features=self.hidden[0], out_features=self.hidden[1])
+        self.lif_hidden1 = snn.Leaky(beta=torch.rand(self.hidden[1]), 
+                                    threshold=torch.rand(self.hidden[1]),
+                                    learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
+                                    spike_grad=self.surr_grad)
         # layer 3
-        self.fc_hidden1 = nn.Linear(in_features=self.hidden[1], out_features=self.hidden[2])
-        self.lif_hidden1 = snn.Leaky(beta=torch.rand(self.hidden[2]), threshold=torch.rand(self.hidden[2]),
-                                    learn_beta=True, learn_threshold=self.learn_thr, spike_grad=self.spike_grad)
+        self.fc_hidden2 = nn.Linear(in_features=self.hidden[1], out_features=self.hidden[2])
+        self.lif_hidden2 = snn.Leaky(beta=torch.rand(self.hidden[2]), 
+                                    threshold=torch.rand(self.hidden[2]),
+                                    learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
+                                    spike_grad=self.surr_grad)
         
         # layer output
         self.fc_out = nn.Linear(in_features=self.hidden[2], out_features=n_classes)
-        self.li_out = snn.Leaky(beta=torch.rand(n_classes), threshold=1.0, learn_beta=True,
-                                spike_grad=self.spike_grad)
-
-        self.sigmoid = nn.Sigmoid()
+        self.li_out = snn.Leaky(beta=torch.rand(n_classes), threshold=1.0,learn_threshold=self.learn_thr, 
+                                learn_beta=self.learn_beta,
+                                spike_grad=self.surr_grad)
 
     def forward(self, x):
 
         mem_1 = self.lif_in.init_leaky()
-        mem_2 = self.lif_hidden.init_leaky()
-        mem_3 = self.lif_hidden1.init_leaky()
+        mem_2 = self.lif_hidden1.init_leaky()
+        mem_3 = self.lif_hidden2.init_leaky()
         mem_o = self.li_out.init_leaky()
 
         # Record the final layer
         spk_rec = []
         mem_rec = []
 
-        for step in range(x.shape[0]): # sto considerando la batch_size
-            x_timestep = x[step, :, :, :]
+        for step in range(x.shape[2]): # n. timesteps = n. windows
 
-            cur_in = self.fc_in(x_timestep)
+            x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
+            
+            cur_in = self.fc_in(x_tmstp) # ~ [batch, 16]
             spk_in, mem_1 = self.lif_in(cur_in, mem_1)
 
-            cur_hidden = self.fc_hidden(spk_in)
-            spk_hidden, mem_2 = self.lif_hidden(cur_hidden, mem_2)
+            cur_hidden1 = self.fc_hidden1(spk_in) # ~ [batch, 1]
+            spk_hidden1, mem_2 = self.lif_hidden(cur_hidden1, mem_2)
+            
+            cur_hidden2 = self.fc_hidden2(spk_hidden1) # ~ [batch, 1]
+            spk_hidden2, mem_3 = self.lif_hidden(cur_hidden2, mem_3)
 
-            cur_hidden1 = self.fc_hidden1(spk_hidden)
-            spk_hidden1, mem_3 = self.lif_hidden(cur_hidden1, mem_3)
-
-            cur_out = self.fc_out(spk_hidden1)
+            cur_out = self.fc_out(spk_hidden2) # ~ [batch, num_classes]
             spk_out, mem_o = self.li_out(cur_out, mem_o)
 
             spk_rec.append(spk_out)
             mem_rec.append(mem_o)
 
-        return torch.stack(spk_rec, dim=0), torch.stack(mem_rec, dim=0)
+        return torch.stack(spk_rec, dim=0)#, torch.stack(mem_rec, dim=0)
     
 
 ###############################################
