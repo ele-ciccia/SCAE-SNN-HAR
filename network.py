@@ -37,8 +37,8 @@ class HeavisideCustom(nn.Module):
 # Class to implement the bipolar CAE with 2 layers
 ######################################################
     
-# nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, groups=1, 
-#           bias=True, padding_mode='zeros', device=None, dtype=None)
+# nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, 
+#           groups=1, bias=True, padding_mode='zeros', device=None, dtype=None)
     
 class cae_2(nn.Module):
     def __init__(self, tau, channels, kernel_size, stride, padding):
@@ -62,11 +62,13 @@ class cae_2(nn.Module):
 
         self.decoder = nn.Sequential(
                                         nn.ConvTranspose3d(2, self.channels[0], self.kernel_size,
-                                                           stride=self.stride, padding=self.padding),
+                                                           stride=self.stride, 
+                                                           padding=self.padding),
                                         nn.BatchNorm3d(num_features = self.channels[0]),
                                         nn.Tanh(),
                                         nn.ConvTranspose3d(self.channels[0], 2, self.kernel_size,
-                                                           stride=self.stride, padding=self.padding),
+                                                           stride=self.stride, 
+                                                           padding=self.padding),
                                         nn.BatchNorm3d(num_features = 2),
                                         nn.Sigmoid()
                                     )
@@ -95,7 +97,8 @@ class cae_3(nn.Module):
                                                   stride=self.stride, padding='same'),
                                         nn.BatchNorm3d(num_features = self.channels[0]),
                                         nn.Tanh(),
-                                        nn.Conv3d(self.channels[0], self.channels[1], self.kernel_size,
+                                        nn.Conv3d(self.channels[0], self.channels[1], 
+                                                  self.kernel_size,
                                                   stride=self.stride, padding='same'),
                                         nn.BatchNorm3d(num_features = self.channels[1]),
                                         nn.Tanh(),
@@ -107,16 +110,18 @@ class cae_3(nn.Module):
 
         self.decoder = nn.Sequential(
                                         nn.ConvTranspose3d(2, self.channels[1], self.kernel_size,
-                                                           stride=self.stride, padding=self.padding),
+                                                           stride=self.stride, 
+                                                           padding=self.padding),
                                         nn.BatchNorm3d(num_features = self.channels[1]),
                                         nn.Tanh(),
                                         nn.ConvTranspose3d(self.channels[1], self.channels[0], 
-                                                           self.kernel_size,
-                                                           stride=self.stride, padding=self.padding),
+                                                           self.kernel_size, stride=self.stride, 
+                                                           padding=self.padding),
                                         nn.BatchNorm3d(num_features = self.channels[0]),
                                         nn.Tanh(),
                                         nn.ConvTranspose3d(self.channels[0], 2, self.kernel_size,
-                                                           stride=self.stride, padding=self.padding),
+                                                           stride=self.stride, 
+                                                           padding=self.padding),
                                         nn.BatchNorm3d(num_features = 2),
                                         nn.Sigmoid()
                                     )
@@ -159,7 +164,8 @@ class snn_1(nn.Module):
         
         # layer output
         self.fc_out = nn.Linear(in_features=self.hidden[1], out_features=n_classes)
-        self.li_out = snn.Leaky(beta=torch.rand(n_classes), threshold=1.0,learn_threshold=self.learn_thr, 
+        self.li_out = snn.Leaky(beta=torch.rand(n_classes), threshold=1.0,
+                                #learn_threshold=self.learn_thr, 
                                 learn_beta=self.learn_beta,
                                 spike_grad=self.surr_grad)
 
@@ -183,8 +189,6 @@ class snn_1(nn.Module):
             cur_hidden = self.fc_hidden(spk_in) # ~ [batch, 1]
             spk_hidden, mem_2 = self.lif_hidden(cur_hidden, mem_2)
             
-            #spk_hidden = torch.squeeze(spk_hidden) # ~ [20]
-
             cur_out = self.fc_out(spk_hidden) # ~ [batch, num_classes]
             spk_out, mem_o = self.li_out(cur_out, mem_o)
 
@@ -255,10 +259,10 @@ class snn_2(nn.Module):
             spk_in, mem_1 = self.lif_in(cur_in, mem_1)
 
             cur_hidden1 = self.fc_hidden1(spk_in) # ~ [batch, 1]
-            spk_hidden1, mem_2 = self.lif_hidden(cur_hidden1, mem_2)
+            spk_hidden1, mem_2 = self.lif_hidden1(cur_hidden1, mem_2)
             
             cur_hidden2 = self.fc_hidden2(spk_hidden1) # ~ [batch, 1]
-            spk_hidden2, mem_3 = self.lif_hidden(cur_hidden2, mem_3)
+            spk_hidden2, mem_3 = self.lif_hidden2(cur_hidden2, mem_3)
 
             cur_out = self.fc_out(spk_hidden2) # ~ [batch, num_classes]
             spk_out, mem_o = self.li_out(cur_out, mem_o)

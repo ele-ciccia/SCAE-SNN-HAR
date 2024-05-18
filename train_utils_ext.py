@@ -47,13 +47,10 @@ def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
 
                 encoded, decoded, spk_out = model(X.float())
 
-                #clss = torch.nn.Softmax(torch.sum(spk_out, 1)) if out_dec.lower() == 'rate'\
-                #        else 1 # COMPLETARE con latency
-
-                #clss = torch.nn.functional.softmax(torch.sum(spk_out, 1))
                 #print(torch.sum(spk_out, 0).shape)
 
-                clss = torch.argmax(torch.sum(spk_out, 0), dim=1)
+                clss = torch.argmax(torch.sum(spk_out, 0), dim=1) if out_dec.lower() == 'rate'\
+                       else 1 # COMPLETARE con latency
                 
                 train_acc += (sum(clss==y)/len(y)).cpu().item()
 
