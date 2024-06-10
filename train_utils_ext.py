@@ -1,8 +1,8 @@
-import torch
 import tqdm
+import time
+import torch
 import numpy as np
 import snntorch.functional as SF
-import time
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 scaler = torch.cuda.amp.GradScaler()
@@ -25,14 +25,12 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
     cae_loss_list, snn_loss_list = [], []
     train_acc_list, val_acc_list = [], []
     counter = 0
-    best_val_loss = float('inf')
+    best_val_acc = -float('inf')
     loss_fn_snn = SF.ce_count_loss() if out_dec.lower() == 'rate' \
                                      else SF.ce_temporal_loss()
 
     torch.autograd.set_detect_anomaly(True)
 
-    #with tqdm.trange(epochs) as pbar:
-    #    for epoch in pbar:
     for epoch in range(epochs):
             model.train()
             train_loss = 0.0
@@ -55,9 +53,12 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
                 
                 train_acc += (sum(clss==y)/len(y)).cpu().item()
 
+                #train_acc += SF.acc.accuracy_rate(decoded, X.float()).item() if out_dec.lower() == 'rate'\
+                #            else SF.acc.accuracy_temporal(decoded, X.float()).item()
+
                 sparsity_reg = (torch.sum(abs(encoded))) / \
                                 torch.prod(torch.tensor(encoded.shape))
-                #print(sparsity_reg.detach().cpu())
+
                 cae_loss = loss_fn_cae(decoded, X.float()) 
                 cae_loss_count += alpha*cae_loss.item()
 
@@ -121,8 +122,8 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
                 val_loss_list.append(val_loss/len(valid))
                 val_acc_list.append(val_acc/len(valid))
             
-                if val_loss_list[-1] < best_val_loss:
-                    best_val_loss = val_loss_list[-1]
+                if val_acc_list[-1] > best_val_acc:
+                    best_val_acc = val_acc_list[-1]
                     counter = 0
                     if path:
                         torch.save(model.state_dict(), path)
