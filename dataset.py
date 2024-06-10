@@ -19,7 +19,8 @@ from ec_utils import (
 RAW_DATA_PATH = os.path.join(".", "data", "raw_data")
 
 # Path to where the generated processed dataset will be saved
-DATA_PATH_V2 = os.path.join(".", "data", "processed_data")
+#DATA_PATH_V2 = os.path.join(".", "data", "processed_data")
+DATA_PATH_V2 = os.path.abspath('/home/eleonora/Documents/Papers/Learned_Spike_Encoding/PAPER_EXTENSION/data/processed_data')
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -270,7 +271,8 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
         mD_columns = torch.tensor(Xy[2])
         Y = torch.Tensor(class_enc[self.raw_filenames[idx].split('_')[2]]).to(torch.int64)
 
-        X = torch.clamp(torch.tensor(X.detach()), min=-150, max=150) 
+        #X = torch.clamp(torch.tensor(X.detach()), min=-150, max=150) 
+        X = torch.clamp(X.clone().detach(), min=-150, max=150)
 
         min_values, _ = torch.min(X, dim=3, keepdim=True)
         max_values, _ = torch.max(X, dim=3, keepdim=True)

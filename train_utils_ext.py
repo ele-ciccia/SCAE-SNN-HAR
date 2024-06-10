@@ -10,15 +10,16 @@ scaler = torch.cuda.amp.GradScaler()
 ##############
 # Train Loop #
 ##############
-def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
-          acc_steps, alfa, beta, Lambda, epochs, patience, path):
+def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
+          acc_steps, alpha, beta, Lambda, epochs, patience, path, 
+          verbose = True):
 
     if not (
         out_dec.lower() in ['rate', 'latency']
     ):
         raise Exception("The chosen output decoding is not valid.")
 
-    #assert (Lambda >= 0 & alfa >= 0 & beta >= 0)
+    #assert (Lambda >= 0 & alpha >= 0 & beta >= 0)
 
     train_loss_list, val_loss_list = [], []
     cae_loss_list, snn_loss_list = [], []
@@ -58,12 +59,12 @@ def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
                                 torch.prod(torch.tensor(encoded.shape))
                 #print(sparsity_reg.detach().cpu())
                 cae_loss = loss_fn_cae(decoded, X.float()) 
-                cae_loss_count += alfa*cae_loss.item()
+                cae_loss_count += alpha*cae_loss.item()
 
                 snn_loss = loss_fn_snn(spk_out, y)
                 snn_loss_count += beta*snn_loss.item()
 
-                total_loss = alfa*cae_loss  + beta*snn_loss + \
+                total_loss = alpha*cae_loss  + beta*snn_loss + \
                              Lambda * sparsity_reg
                 
                 #scaler.scale(total_loss).backward()
@@ -111,7 +112,7 @@ def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
 
                     snn_loss = loss_fn_snn(spk_out, y) #valid
 
-                    total_loss = alfa*cae_loss + beta*snn_loss + Lambda * sparsity_reg
+                    total_loss = alpha*cae_loss + beta*snn_loss + Lambda * sparsity_reg
 
                     del cae_loss, snn_loss, sparsity_reg
 
@@ -135,7 +136,8 @@ def train(model, train, valid, loss_fn_cae, out_dec, optimizer,
 
             torch.cuda.empty_cache()
 
-            print(f"Epoch {epoch+1} - loss: {round(train_loss_list[-1], 4)} | acc: {round(train_acc_list[-1], 4)} | val_loss: {round(val_loss_list[-1], 4)} | val_acc: {round(val_acc_list[-1], 4)}")
+            if verbose:
+                print(f"Epoch {epoch+1} - loss: {round(train_loss_list[-1], 4)} | acc: {round(train_acc_list[-1], 4)} | val_loss: {round(val_loss_list[-1], 4)} | val_acc: {round(val_acc_list[-1], 4)}")
 
     return train_loss_list, val_loss_list, train_acc_list, val_acc_list, cae_loss_list, snn_loss_list
 
