@@ -1,14 +1,9 @@
 import numpy as np
 import scipy
-import sklearn
-from sklearn import metrics
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
-import torch
 import random
+import torch
 import torch.utils.data as data_utils
 import torch.nn.functional as F
-import seaborn as sns
-import matplotlib.pyplot as plt
 
 
 ##################################
@@ -90,47 +85,6 @@ def to_complex(real, imag):
     return [real[k] + 1j * imag[k] for k in range(len(real))]
 
 
-##################################
-# Functions to evaluate robustness
-##################################
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def evaluate(model, dataloader, out_dec, verbose=True, plot_conf_mx=True):
-    model.eval()
-    ground_truth, predictions = [], []
-
-    with torch.no_grad():
-        for X, _, y in dataloader:
-            X = X.to(device)
-        
-            ground_truth.append(y.item())
-            encoded, decoded, spk_out = model(X.float())
-            clss = torch.argmax(torch.sum(spk_out, 0), dim=1) if out_dec.lower() == 'rate'\
-                       else 1 # COMPLETARE con latency
-            predictions.append(clss.to("cpu").item())
-
-    # MODIFICARE PER MULTICLASS
-    accuracy = accuracy_score(ground_truth, predictions)
-    precision = precision_score(ground_truth, predictions)
-    recall = recall_score(ground_truth, predictions)
-    F1 = f1_score(ground_truth, predictions)
-    confusion_matrix = metrics.confusion_matrix(ground_truth, predictions)
-
-    if verbose:
-        print(f"Accuracy: {accuracy}\nPrecision: {precision}\nRecall: {recall}\nF1 score: {F1}")
-
-    if plot_conf_mx:
-        sns.heatmap(confusion_matrix,
-            annot=True,
-            fmt='g',
-            #xticklabels=['Not Spam','Spam'],
-            #yticklabels=['Not Spam','Spam']
-            )
-
-        plt.ylabel('Actual',fontsize=12)
-        plt.xlabel('Prediction',fontsize=12)
-        plt.show()
-
-    return accuracy, precision, recall, F1
 
 
