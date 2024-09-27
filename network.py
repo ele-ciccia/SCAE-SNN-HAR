@@ -1,11 +1,8 @@
 import torch
 from torch import nn
 import snntorch as snn
+from snntorch import utils
 from snntorch import functional as SF
-
-############################################
-# All functions needed to implement the CAE
-############################################
 
 ####################################################
 # Class to implement the custom Heaviside function
@@ -23,7 +20,6 @@ class HeavisideCustomFunction(torch.autograd.Function):
         grad_tau = None
         return grad_input, grad_tau
 
-
 class HeavisideCustom(nn.Module):
     def __init__(self, tau):
         super(HeavisideCustom, self).__init__()
@@ -35,11 +31,7 @@ class HeavisideCustom(nn.Module):
 
 ######################################################
 # Class to implement the bipolar CAE with 2 layers
-######################################################
-    
-# nn.Conv3d(in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, 
-#           groups=1, bias=True, padding_mode='zeros', device=None, dtype=None)
-    
+######################################################    
 class cae_2(nn.Module):
     def __init__(self, tau, channels, kernel_size, stride, padding):
         super(cae_2, self).__init__()
@@ -92,6 +84,7 @@ class cae_3(nn.Module):
         self.channels = channels
         self.stride = stride
         self.padding = padding
+
         self.encoder = nn.Sequential(
                                         nn.Conv3d(2, self.channels[0], self.kernel_size,
                                                   stride=self.stride, padding='same'),
@@ -171,9 +164,9 @@ class snn_1(nn.Module):
 
     def forward(self, x):
 
-        mem_1 = self.lif_in.init_leaky()
-        mem_2 = self.lif_hidden.init_leaky()
-        mem_o = self.li_out.init_leaky()
+        mem_in = self.lif_in.init_leaky()
+        mem_hid = self.lif_hidden.init_leaky()
+        mem_out = self.li_out.init_leaky()
         
         # Record the final layer
         spk_rec = []
@@ -184,16 +177,16 @@ class snn_1(nn.Module):
             x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
             
             cur_in = self.fc_in(x_tmstp) # ~ [batch, 16]
-            spk_in, mem_1 = self.lif_in(cur_in, mem_1)
+            spk_in, mem_in = self.lif_in(cur_in, mem_in)
 
-            cur_hidden = self.fc_hidden(spk_in) # ~ [batch, 1]
-            spk_hidden, mem_2 = self.lif_hidden(cur_hidden, mem_2)
+            cur_hid = self.fc_hidden(spk_in) # ~ [batch, 1]
+            spk_hid, mem_hid = self.lif_hidden(cur_hid, mem_hid)
             
-            cur_out = self.fc_out(spk_hidden) # ~ [batch, num_classes]
-            spk_out, mem_o = self.li_out(cur_out, mem_o)
+            cur_out = self.fc_out(spk_hid) # ~ [batch, num_classes]
+            spk_out, mem_out = self.li_out(cur_out, mem_out)
 
             spk_rec.append(spk_out)
-            mem_rec.append(mem_o)
+            mem_rec.append(mem_out)
 
         return torch.stack(spk_rec, dim=0)#, torch.stack(mem_rec, dim=0)
     
@@ -348,4 +341,94 @@ class SNN_conv(nn.Module):
             amplitudes = self.sigmoid(mem_a)
 
         return frequencies, amplitudes
+
+
+######################################################
+# Class to implement the SNN encoder with linear layer
+######################################################
+class sae_lin(nn.Module):
+
+    def __init__(self, input_dim, surr_grad, learn_beta):
+        super(sae_lin, self).__init__()
+
+        self.input_dim = input_dim        
+        self.surr_grad = surr_grad
+        self.learn_beta = learn_beta
+
+        self.encoder = nn.Linear(in_features=self.input_dim, out_features=self.input_dim)
+        
+        self.lif_code = snn.Leaky(beta=torch.rand(self.input_dim),threshold=1.0, 
+                              learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+                                
+        self.decoder = nn.Linear(in_features=self.input_dim, out_features=self.input_dim)
+        self.sigmoid = nn.Sigmoid()
+                                    
+        
+    def forward(self, x):
+
+        mem_enc = self.lif_code.init_leaky()
+       
+        # encoding
+        spk_rec = [], mem_rec = []
+
+        for step in range(x.shape[2]): # n. timesteps = n. windows
+
+            x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
+            encoded = self.encoder(x_tmstp)
+            spk_enc, mem_enc = self.lif_code(encoded, mem_enc)
+            
     
+
+#####################################################
+# Class to implement the SNN encoder with conv layer
+#####################################################
+class sae_conv(nn.Module):
+
+    def __init__(self, input_dim, channels, surr_grad, learn_beta):
+        super(sae_conv, self).__init__()
+
+        self.input_dim = input_dim  
+        self.channels = channels      
+        self.surr_grad = surr_grad
+        self.learn_beta = learn_beta
+
+        # layer 1 
+        self.fc = nn.Conv3d(2, self.channels, self.kernel_size,
+                            stride=self.stride, padding='same'),
+        self.bn = nn.BatchNorm3d(num_features = self.channels),
+        self.lif = snn.Leaky(beta=torch.rand(self.channels*10*64), 
+                             threshold=torch.rand(self.channels*10*64),
+                             learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+        
+        self.fc1 = nn.Conv3d(self.channels, 2, self.kernel_size,
+                            stride=self.stride, padding='same'),
+        self.bn1 = nn.BatchNorm3d(num_features = 2),
+        self.lif1 = snn.Leaky(beta=torch.rand(2*10*64), threshold=1.0,
+                             learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+        
+
+    def forward(self, x):
+
+        mem = self.lif.init_leaky()
+        mem1 = self.lif1.init_leaky()
+        
+        # Record the final layer
+        spike_rec = []
+        mem_rec = []
+
+        for step in range(x.shape[2]): # n. timesteps = n. windows
+
+            x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
+            
+            cur = self.fc(x_tmstp) # ~ [batch, 16]
+            cur = self.bn(cur)
+            spike, mem = self.lif(cur, mem)
+
+            cur1 = self.fc1(spike)
+            cur1 = self.bn1(cur1)
+            spike1, mem1 = self.lif1(cur1, mem1)
+
+            spike_rec.append(spike1)
+            mem_rec.append(mem1)
+
+        return torch.stack(spike_rec, dim=0)#, torch.stack(mem_rec, dim=0)

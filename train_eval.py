@@ -147,29 +147,9 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
     return train_loss_list, val_loss_list, train_acc_list, val_acc_list, cae_loss_list, snn_loss_list
 
 
-############################################
-# Function to evaluate the end-to-end model
-############################################
-def evaluate_(model, dataloader, loss_fn):
-    model.eval()
-    total_mse = 0.0
-
-    with torch.no_grad():
-        for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-
-            encoded, decoded, freq, amp = model(X.float())
-
-            mse_signal = loss_fn(decoded, X.float()).item()
-            mse_freq = loss_fn(freq, y[:,0].float()).item()
-            mse_amp = loss_fn(amp, y[:,1].float()).item()
-
-            total_mse += mse_signal + mse_freq + mse_amp
-
-    average_mse = total_mse / len(dataloader)
-    return average_mse
-
-#############
+################################
+# Function to evaluate the model
+################################
 def evaluate(model, dataloader, out_dec, avg_type, verbose=True):
     model.eval()
     ground_truth, predictions = [], []

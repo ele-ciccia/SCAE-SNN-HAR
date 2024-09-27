@@ -30,18 +30,19 @@ HYPERPARAMETER OPTIMIZATION:
  - Finally, I trained the network for 150 epochs with patience 20, saving the best model in terms of accuracy in the valid set.
  Note: I used the accuracy (non-weighted) on the valid set, although all the sets are highly imbalanced. However, a naive classifier that always outputs WALKING (which is the classes with most samples) for the valid set, would achieve an accuracy of roughly 50%. So a classifier that achieves accuracy of around 90% is performing better. 
  
-- Implemented the function to compute accuracy, precision, recall and F1 score on the test set. It is necessary to take into account that the dataset is imbalanced (the majority of the samples belong to the WALKING category). Results on the test set are satisfactory.
+- Implemented the function to compute accuracy, precision, recall and F1 score on the test set (see train_eval.py). It is necessary to take into account that the dataset is imbalanced (the majority of the samples belong to the WALKING category). Results on the test set are satisfactory.
 To deal with the imbalance, we compute the metrics with the macro and with the weighted average. 
-MACRO AVG: computes metrics for each class independently and then takes the average (unweighted). This treats all classes equally regardless of their frequency, giving a better idea on how the model performs on minority classes.
-WEIGHTED AVG: computes metrics for each class and then takes the weighted average based on the number of true instancrs per class. This gives more importance to the majority classes but still accounts for performance across all classes.
+- MACRO AVG: computes metrics for each class independently and then takes the average (unweighted). This treats all classes equally regardless of their frequency, giving a better idea on how the model performs on minority classes.
+- WEIGHTED AVG: computes metrics for each class and then takes the weighted average based on the number of true instancrs per class. This gives more importance to the majority classes but still accounts for performance across all classes.
 
 
  NEXT STEPS:
- 1) Vedere capacità di encoding dei neuroni LIF ed eventualmente sostituire CAE con SNN. In questo caso, comparare anche # parametri (grandezza/peso del modello in MB), velocità di inferenza, accuratezza della ricostruzione tra CAE e SNN
+ 1) Vedere capacità di encoding dei neuroni LIF ed eventualmente sostituire CAE con SNN. In questo caso, comparare anche # parametri (grandezza/peso del modello in MB), velocità di inferenza, accuratezza della ricostruzione tra CAE e SNN.
+ 	1.1) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
  2) Provare a cambiare tipo di regolarizzazione (usare quella con correlazione tra real e imag?)
  3) Vedere differenza tra Spike rate e spike timing come output decoding sia in termini di: accuratezza della classificazione, numero di spike prodotte, tempi di inferenza
  4) provare a incorporare poi POPULATION CODING
- 5) Plottare spike and membrane potential dei vari layer per vedere cosa succede
+ 5) Plottare spike and membrane potential dei vari layer per vedere cosa succede ( o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
  
  
  
