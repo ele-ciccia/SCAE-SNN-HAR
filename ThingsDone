@@ -39,15 +39,26 @@ To deal with the imbalance, we compute the metrics with the macro and with the w
  NEXT STEPS:
  1) Vedere capacità di encoding dei neuroni LIF ed eventualmente sostituire CAE con SNN. In questo caso, comparare anche # parametri (grandezza/peso del modello in MB), velocità di inferenza, accuratezza della ricostruzione tra CAE e SNN.
  	1.1) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
- 2) Provare a cambiare tipo di regolarizzazione (usare quella con correlazione tra real e imag?)
- 3) Vedere differenza tra Spike rate e spike timing come output decoding sia in termini di: accuratezza della classificazione, numero di spike prodotte, tempi di inferenza
- 4) provare a incorporare poi POPULATION CODING
- 5) Plottare spike and membrane potential dei vari layer per vedere cosa succede ( o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
+ 2) Se encoding con neuroni LIF più potente, provare a modificare il decoder in modo tale che ricostruisca la DFT o il mu_D spectrum. Questo forzerebbe l'encoding a preservare informa<ioni importanti rigurardo lo spettro del segnale?
+ 3) Provare a cambiare tipo di regolarizzazione (usare quella con correlazione tra real e imag?)
+ 4) Vedere differenza tra Spike rate e spike timing come output decoding sia in termini di: accuratezza della classificazione, numero di spike prodotte, tempi di inferenza
+ 5) Provare a incorporare poi POPULATION CODING
+ 6) Plottare spike and membrane potential dei vari layer per vedere cosa succede (o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
  
  
- 
- 
- 
+  
+TO DO:
+	1. Implementare nuova classe per LSE1 con autoencoder snn
+	2. Riscrivere funzione di train (forzare sempre sparsità)
+	3. Lanciare un train se si riesce
+
+
+
+
+
+
+
+
  
  
  

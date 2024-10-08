@@ -26,8 +26,8 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
     #assert (Lambda >= 0 & alpha >= 0 & beta >= 0)
 
     train_loss_list, val_loss_list = [], []
-    cae_loss_list, snn_loss_list = [], []
-    train_acc_list, val_acc_list = [], []
+    cae_loss_list, snn_loss_list   = [], []
+    train_acc_list, val_acc_list   = [], []
     counter = 0
     best_val_acc = -float('inf')
     loss_fn_snn = SF.ce_count_loss() if out_dec.lower() == 'rate' \
@@ -37,19 +37,18 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
 
     for epoch in range(epochs):
             model.train()
-            train_loss = 0.0
-            train_acc = 0.0
-            snn_loss_count = 0.0
-            cae_loss_count = 0.0
+            train_loss, train_acc = 0.0, 0.0
+            snn_loss_count, cae_loss_count = 0.0, 0.0
             optimizer.zero_grad()
 
             for batch, (X, muD, y) in enumerate(train):
+                print(batch)
                 del muD
                 #start_time = time.time()
                 X, y = X.squeeze().to(device), y.squeeze().to(device)
 
                 encoded, decoded, spk_out = model(X.float())
-
+                #print("ok")
                 #print(torch.sum(spk_out, 0).shape)
 
                 clss = torch.argmax(torch.sum(spk_out, 0), dim=1) if out_dec.lower() == 'rate'\
@@ -64,10 +63,10 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
                                 torch.prod(torch.tensor(encoded.shape))
 
                 cae_loss = loss_fn_cae(decoded, X.float()) 
-                cae_loss_count += alpha*cae_loss.item()
+                cae_loss_count += alpha * cae_loss.item()
 
                 snn_loss = loss_fn_snn(spk_out, y)
-                snn_loss_count += beta*snn_loss.item()
+                snn_loss_count += beta * snn_loss.item()
 
                 total_loss = alpha*cae_loss  + beta*snn_loss + \
                              Lambda * sparsity_reg

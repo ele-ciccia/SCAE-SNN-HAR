@@ -174,7 +174,10 @@ class snn_1(nn.Module):
 
         for step in range(x.shape[2]): # n. timesteps = n. windows
 
-            x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
+            if len(x.shape) == 5:
+                x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
+            else:
+                print(f"Step {step}, x shape {x.shape}")
             
             cur_in = self.fc_in(x_tmstp) # ~ [batch, 16]
             spk_in, mem_in = self.lif_in(cur_in, mem_in)
