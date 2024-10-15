@@ -85,6 +85,37 @@ def to_complex(real, imag):
     return [real[k] + 1j * imag[k] for k in range(len(real))]
 
 
+##########################################################
+# Function to compute the trainable parameters of a model
+##########################################################
+
+def count_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+################################################
+# Function to compute the size of a model in MB
+#################################################
+
+def model_size_in_mb(model):
+    total_params = 0
+    total_buffers = 0
+
+    for param in model.parameters():
+        total_params += param.numel()  # Total number of elements in all parameters
+    
+    for buffer in model.buffers():
+        total_buffers += buffer.numel()  # Total number of elements in all buffers
+    
+    # Each element is 4 bytes for float32 (the datatype we are using)
+    param_size_in_bytes = total_params * 4  
+    buffer_size_in_bytes = total_buffers * 4 
+
+    total_size_in_mb = (param_size_in_bytes + buffer_size_in_bytes) / (1024 ** 2)  # Convert to MB
+    
+    return round(total_size_in_mb, 2)
+
+
 
 
 

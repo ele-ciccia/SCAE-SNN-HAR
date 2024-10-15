@@ -131,11 +131,12 @@ class cae_3(nn.Module):
 ##################################################
 class snn_1(nn.Module):
 
-    def __init__(self, input_dim, hidden, n_classes, surr_grad, learn_thr, learn_beta):
+    def __init__(self, input_dim, hidden, timesteps, n_classes, surr_grad, learn_thr, learn_beta):
         super(snn_1, self).__init__()
 
         self.input_dim = input_dim        
         self.hidden = hidden
+        self.timesteps = timesteps
         self.n_classes = n_classes
         self.surr_grad = surr_grad
         self.learn_thr = learn_thr
@@ -172,13 +173,10 @@ class snn_1(nn.Module):
         spk_rec = []
         mem_rec = []
 
-        for step in range(x.shape[2]): # n. timesteps = n. windows
+        for step in range(self.timesteps): # n. timesteps = n. windows
 
-            if len(x.shape) == 5:
-                x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
-            else:
-                print(f"Step {step}, x shape {x.shape}")
-            
+            x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
+
             cur_in = self.fc_in(x_tmstp) # ~ [batch, 16]
             spk_in, mem_in = self.lif_in(cur_in, mem_in)
 

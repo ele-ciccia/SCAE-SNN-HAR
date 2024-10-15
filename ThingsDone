@@ -24,34 +24,50 @@ HYPERPARAMETER OPTIMIZATION:
 - The hyperparameters (N. of conv layers in the CAE, n. of channels in the CAE, kernel size, threshold tau, alpha and beta, n. of SNN layers, n. of SNN LIF neurons, optimization algorithm and learning rate) were first optimized one by one, to find two or three good values, and then with these values a Grid Search was performed, choosing the best combination of hyperparams as the one giving the best mean accuracy on the validation set. 
 - For Grid Search I used Ray library with Basic Variant Generator as search algorithm.
 
+###### 
 - Once obtained the best configuration of hyperparams (see params.py for the values), I run the sparsity regularization with lambda values in [0.0, 1.0] with step 0.1. 
  [TO DO] Do multiple runs to average over more trials.
  
  - Finally, I trained the network for 150 epochs with patience 20, saving the best model in terms of accuracy in the valid set.
  Note: I used the accuracy (non-weighted) on the valid set, although all the sets are highly imbalanced. However, a naive classifier that always outputs WALKING (which is the classes with most samples) for the valid set, would achieve an accuracy of roughly 50%. So a classifier that achieves accuracy of around 90% is performing better. 
- 
+
+######
 - Implemented the function to compute accuracy, precision, recall and F1 score on the test set (see train_eval.py). It is necessary to take into account that the dataset is imbalanced (the majority of the samples belong to the WALKING category). Results on the test set are satisfactory.
 To deal with the imbalance, we compute the metrics with the macro and with the weighted average. 
 - MACRO AVG: computes metrics for each class independently and then takes the average (unweighted). This treats all classes equally regardless of their frequency, giving a better idea on how the model performs on minority classes.
 - WEIGHTED AVG: computes metrics for each class and then takes the weighted average based on the number of true instancrs per class. This gives more importance to the majority classes but still accounts for performance across all classes.
 
+######
+- Added the file sae.py that implements the Spiking Autoencoder with both linear layer and convolutional layer.
+- The first idea is to test the encoding capacity of LIF neurons versus the already implemented CAE. We start the test with a very simple encoder with just linear layers. The encoder is given by one linear layer, the LIF neuron than convert the input current into spikes, which represent the encoding, and then the decoder is a linear layer followed by a sigmoid function to reconstruct the input normalized in the range [0,1].
+
+- Nota: In sae_lin non faccio il reshape di x_timestamp per farne il flatten, ma lo tengo con la sua dim originale e faccio agire Linear() direttamente sull'ultima dimensione (64). In questo caso i risultati sono buoni. Ho provato a replicare la stessa cosa in snn_1, cioè la rete spiking che fa classificazione, ma ho problemi di CUDA OutOfMemory se non faccio il flatten, quindi lì mi conviene tenere le cose come sono state già fatte.
+
+RISULTATI COMPARISON ENCODING CAE E SAE:
+	
+	- Mean reconstruction error: 0.0194 (CAE) vs 0.0573 (SAE)
+	- Average sparsity of encoding: 0.7261 (CAE) vs 0.9677 (SAE)
+	- # of trainable parameters: 343.380 (CAE) vs 181.256 (SAE)
+	- Size in MB of the model: 1.314 MB (CAE) vs 0.691 MB (SAE)
+	- Accuracy, conf_mx e loss molto simili
+	
+
+
+
 
  NEXT STEPS:
- 1) Vedere capacità di encoding dei neuroni LIF ed eventualmente sostituire CAE con SNN. In questo caso, comparare anche # parametri (grandezza/peso del modello in MB), velocità di inferenza, accuratezza della ricostruzione tra CAE e SNN.
- 	1.1) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
- 2) Se encoding con neuroni LIF più potente, provare a modificare il decoder in modo tale che ricostruisca la DFT o il mu_D spectrum. Questo forzerebbe l'encoding a preservare informa<ioni importanti rigurardo lo spettro del segnale?
+ 0) Nel LIF neuron del SAE la threshold è fissata a 1. Aumentarla x diminuire spike creation o farla imparare dalla rete?
+ 1) Vedere capacità di encoding dei neuroni LIF ed eventualmente sostituire CAE con SNN. In questo caso, comparare anche velocità di inferenza.
+ 	1.1) Approfondire SYNAPTIC OPERATIONS (total count of synaptic events or operations that occur during the network's computation) e SPIKING ACTIVITY RATE 
+ 	1.2) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
+ 2) Se encoding con neuroni LIF più potente, provare a modificare il decoder in modo tale che ricostruisca la DFT o il mu_D spectrum. Questo forzerebbe l'encoding a preservare informazioni importanti rigurardo lo spettro del segnale?
  3) Provare a cambiare tipo di regolarizzazione (usare quella con correlazione tra real e imag?)
  4) Vedere differenza tra Spike rate e spike timing come output decoding sia in termini di: accuratezza della classificazione, numero di spike prodotte, tempi di inferenza
  5) Provare a incorporare poi POPULATION CODING
  6) Plottare spike and membrane potential dei vari layer per vedere cosa succede (o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
+ 7) Efficiency of SNN given different levels of sparsity?
  
  
-  
-TO DO:
-	1. Implementare nuova classe per LSE1 con autoencoder snn
-	2. Riscrivere funzione di train (forzare sempre sparsità)
-	3. Lanciare un train se si riesce
-
 
 
 

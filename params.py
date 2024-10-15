@@ -2,7 +2,7 @@ import torch
 from snntorch import surrogate, functional as SF
 
 params_train = {
-                "epochs": 150,
+                "epochs": 50,
                 "acc_steps": None,
                 "l_rate": 1e-4, 
                 "lambda_reg": 0.3, 

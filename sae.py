@@ -9,19 +9,20 @@ from snntorch import functional as SF
 ######################################################
 class sae_lin(nn.Module):
 
-    def __init__(self, input_dim, surr_grad, learn_beta):
+    def __init__(self, input_dim, surr_grad, learn_beta, timesteps):
         super(sae_lin, self).__init__()
 
         self.input_dim = input_dim        
         self.surr_grad = surr_grad
         self.learn_beta = learn_beta
+        self.timesteps = timesteps
 
-        self.encoder = nn.Linear(in_features=self.input_dim, out_features=self.input_dim)
-        
-        self.lif_code = snn.Leaky(beta=torch.rand(self.input_dim), threshold=1.0, 
+        self.encoder = nn.Linear(in_features=input_dim, out_features=input_dim)
+
+        self.lif_code = snn.Leaky(beta=torch.rand(input_dim), threshold=1.0, 
                               learn_beta=self.learn_beta, spike_grad=self.surr_grad)
                                 
-        self.decoder = nn.Linear(in_features=self.input_dim, out_features=self.input_dim)
+        self.decoder = nn.Linear(in_features=input_dim, out_features=input_dim)
         self.sigmoid = nn.Sigmoid()
 
         
@@ -29,16 +30,13 @@ class sae_lin(nn.Module):
 
         mem_enc = self.lif_code.init_leaky()
        
-        # record spikes and membrane potential
+        # record spike ecoding and decoding
         spk_rec = []
         dec_rec = []
 
-        for step in range(x.shape[2]): # n. timesteps = n. windows
+        for step in range(self.timesteps): # n. timesteps = n. windows
 
-            if len(x.shape) == 5:
-                x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) # ~ [batch, 2*10*64]
-            else:
-                print(f"Step {step}, x shape {x.shape}")
+            x_tmstp = x[:, :, step, :, :] # select the current timestamp 
 
             encoded = self.encoder(x_tmstp)
             spk_enc, mem_enc = self.lif_code(encoded, mem_enc)
@@ -48,9 +46,11 @@ class sae_lin(nn.Module):
             spk_rec.append(spk_enc)
             dec_rec.append(decoded)
 
-        print(spk_enc.shape)
-        print(decoded.shape)
-        return torch.stack(spk_rec, dim=0), torch.stack(dec_rec, dim=0)
+        # stack all the recording of encoded and decoded on dim 2 to obtain shape [8, 2, 232, 10, 64]
+        stacked_spk_rec = torch.stack(spk_rec, dim=2)
+        stacked_dec_rec = torch.stack(dec_rec, dim=2)
+
+        return stacked_spk_rec, stacked_dec_rec
     
 
 #####################################################
