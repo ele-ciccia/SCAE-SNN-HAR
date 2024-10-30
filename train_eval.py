@@ -47,14 +47,11 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
                 X, y = X.squeeze().to(device), y.squeeze().to(device)
 
                 encoded, decoded, spk_out = model(X.float())
-                print("Encoded", encoded.shape)
-                print("Decoded", decoded.shape)
-                print("Spike", spk_out.shape)
                 #print(torch.sum(spk_out, 0).shape)
 
                 clss = torch.argmax(torch.sum(spk_out, 0), dim=1) if out_dec.lower() == 'rate'\
                        else 1 # COMPLETARE con latency
-                print(clss.shape)
+
                 train_acc += (sum(clss==y)/len(y)).cpu().item()
 
                 #train_acc += SF.acc.accuracy_rate(decoded, X.float()).item() if out_dec.lower() == 'rate'\
@@ -69,7 +66,7 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
                 snn_loss = loss_fn_snn(spk_out, y)
                 snn_loss_count += beta * snn_loss.item()
 
-                total_loss = alpha*cae_loss  + beta*snn_loss + \
+                total_loss = alpha * cae_loss + beta * snn_loss + \
                              Lambda * sparsity_reg
                 
                 #scaler.scale(total_loss).backward()
@@ -92,8 +89,8 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
             train_loss_list.append(train_loss/len(train))
             train_acc_list.append(train_acc/len(train))
 
-            cae_loss_list.append(cae_loss_count/len(train))
-            snn_loss_list.append(snn_loss_count/len(train))
+            #cae_loss_list.append(cae_loss_count/len(train))
+            #snn_loss_list.append(snn_loss_count/len(train))
 
             del cae_loss_count, snn_loss_count, sparsity_reg
             
@@ -144,7 +141,7 @@ def train_fn(model, train, valid, loss_fn_cae, out_dec, optimizer,
             if verbose:
                 print(f"Epoch {epoch+1} - loss: {round(train_loss_list[-1], 4)} | acc: {round(train_acc_list[-1], 4)} | val_loss: {round(val_loss_list[-1], 4)} | val_acc: {round(val_acc_list[-1], 4)}")
 
-    return train_loss_list, val_loss_list, train_acc_list, val_acc_list, cae_loss_list, snn_loss_list
+    return train_loss_list, val_loss_list, train_acc_list, val_acc_list#, cae_loss_list, snn_loss_list
 
 
 ################################

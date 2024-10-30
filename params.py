@@ -2,13 +2,13 @@ import torch
 from snntorch import surrogate, functional as SF
 
 params_train = {
-                "epochs": 50,
+                "epochs": 100,
                 "acc_steps": None,
                 "l_rate": 1e-4, 
                 "lambda_reg": 0.3, 
                 "alpha": 0.85, 
                 "beta": 0.15, 
-                "patience": 20,
+                "patience": 10,
 }
 
 params_cae = {

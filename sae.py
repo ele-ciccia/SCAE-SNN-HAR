@@ -4,9 +4,9 @@ import snntorch as snn
 from snntorch import utils
 from snntorch import functional as SF
 
-######################################################
-# Class to implement the SNN encoder with linear layer
-######################################################
+###################################################
+# Class to implement the SAE with one linear layer
+###################################################
 class sae_lin(nn.Module):
 
     def __init__(self, input_dim, surr_grad, learn_beta, timesteps):
@@ -52,6 +52,74 @@ class sae_lin(nn.Module):
 
         return stacked_spk_rec, stacked_dec_rec
     
+
+####################################################
+# Class to implement the SAE with two linear layers
+####################################################
+class sae_lin2(nn.Module):
+
+    def __init__(self, input_dim, hidden_dim, surr_grad, learn_beta, timesteps):
+        super(sae_lin2, self).__init__()
+
+        self.input_dim = input_dim   
+        self.hidden_dim = hidden_dim     
+        self.surr_grad = surr_grad
+        self.learn_beta = learn_beta
+        self.timesteps = timesteps
+
+        # encoder
+        self.enc1 = nn.Linear(in_features=input_dim, out_features=hidden_dim)
+        self.lif_enc1 = snn.Leaky(beta=torch.rand(hidden_dim), threshold=1.0, 
+                              learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+        self.enc2 = nn.Linear(in_features=hidden_dim, out_features=input_dim)
+
+        # code
+        self.lif_code = snn.Leaky(beta=torch.rand(input_dim), threshold=1.0, 
+                              learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+
+        # decoding                        
+        self.dec1 = nn.Linear(in_features=input_dim, out_features=hidden_dim)
+        self.lif_dec1 = snn.Leaky(beta=torch.rand(hidden_dim), threshold=1.0, 
+                              learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+        self.dec2 = nn.Linear(in_features=hidden_dim, out_features=input_dim)
+        self.sigmoid = nn.Sigmoid()
+
+        
+    def forward(self, x):
+
+        mem_enc = self.lif_enc1.init_leaky()
+        mem_code = self.lif_code.init_leaky()
+        mem_dec = self.lif_dec1.init_leaky()
+
+        # record spike ecoding and decoding
+        spk_rec = []
+        dec_rec = []
+
+        for step in range(self.timesteps): # n. timesteps = n. windows
+
+            x_tmstp = x[:, :, step, :, :] # select the current timestamp 
+
+            cur_in = self.enc1(x_tmstp)
+            spk_in, mem_enc = self.lif_enc1(cur_in, mem_enc)
+
+            cur_code = self.enc2(spk_in)
+            spk_code, mem_code = self.lif_code(cur_code, mem_code)
+
+            cur_dec1 = self.dec1(spk_code)
+            spk_dec, mem_dec = self.lif_dec1(cur_dec1, mem_dec)
+
+            decoded = self.sigmoid(self.dec2(spk_dec))
+
+            spk_rec.append(spk_code)
+            dec_rec.append(decoded)
+
+        # stack all the recording of encoded and decoded on dim 2 to obtain shape [8, 2, 232, 10, 64]
+        stacked_spk_rec = torch.stack(spk_rec, dim=2)
+        stacked_dec_rec = torch.stack(dec_rec, dim=2)
+
+        return stacked_spk_rec, stacked_dec_rec
+    
+
 
 #####################################################
 # Class to implement the SNN encoder with conv layer

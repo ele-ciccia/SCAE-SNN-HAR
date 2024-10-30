@@ -69,6 +69,7 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
             "You are about to regenerate the whole dataset (V2)! \n If you are sure, press enter to continue."
         )
         N_win = 232
+        delta = N_win // 2
 
         for pass_idx in range(DATAGEN_PARAMS["N_PASSES"]):
             for n in SUBJECTS:
@@ -114,8 +115,10 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
                                 div = chunks.shape[0] // N_win
 
                                 for step in range(div):
-                                    new_chunks = chunks[step*N_win:(step+1)*N_win]
-                                    new_full_IHT_mD = full_IHT_mD[step*N_win:(step+1)*N_win]
+                                    #new_chunks = chunks[step*N_win:(step+1)*N_win]
+                                    new_chunks = chunks[step*delta:(step+2)*delta]
+                                    #new_full_IHT_mD = full_IHT_mD[step*N_win:(step+1)*N_win]
+                                    new_full_IHT_mD = full_IHT_mD[step*delta:(step+2)*delta]
 
                                     data_tuple = (new_chunks, IHT_output, new_full_IHT_mD)
 

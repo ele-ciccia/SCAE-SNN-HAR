@@ -1,6 +1,6 @@
 PREPROCESSING OF THE DATA:
 
-- The real data are measurements obtained in a lab of the department. The experiment included 7 people for which different activities were recorded multiple times. The activities are: WALKING, SITTING, RUNNING and moving HANDS. Each measurement is the CIR of shape 110 (# of range bins) x sample length, which varies from experiment to experiment. 
+- The real data are measurements obtained in a lab of the department. The experiment included 7 people for which different activities were recorded multiple times. The activities are: WALKING, SITTING, RUNNING and waving HANDS. Each measurement is the CIR of shape 110 (# of range bins) x sample length, which varies from experiment to experiment. 
 - From the original matrix we extracted the FFT with windows of length 64 and stride 32, obtaining a matrix of shape (110, # of windows). Then the absolute value was taken and the top 10 range bins were kept, the other were discarded. 
 - Each CIR is normalized in the range [0,1] with the min-max normalization --> (X - min) / (max - min).
 - The CIR is complex: we extracted real and imaginary part to feed them to a real-valued neural network.
@@ -37,13 +37,16 @@ To deal with the imbalance, we compute the metrics with the macro and with the w
 - MACRO AVG: computes metrics for each class independently and then takes the average (unweighted). This treats all classes equally regardless of their frequency, giving a better idea on how the model performs on minority classes.
 - WEIGHTED AVG: computes metrics for each class and then takes the weighted average based on the number of true instancrs per class. This gives more importance to the majority classes but still accounts for performance across all classes.
 
+- Note on the performance: for the last activity (waving hands), the model does not generalize enough to the new data. This activity is more challenging compared to the ohtre three as it involves movements of the hands that cause weak signal reflections.
+
 ######
 - Added the file sae.py that implements the Spiking Autoencoder with both linear layer and convolutional layer.
 - The first idea is to test the encoding capacity of LIF neurons versus the already implemented CAE. We start the test with a very simple encoder with just linear layers. The encoder is given by one linear layer, the LIF neuron than convert the input current into spikes, which represent the encoding, and then the decoder is a linear layer followed by a sigmoid function to reconstruct the input normalized in the range [0,1].
+(model saved as model_sae1.pt)
 
 - Nota: In sae_lin non faccio il reshape di x_timestamp per farne il flatten, ma lo tengo con la sua dim originale e faccio agire Linear() direttamente sull'ultima dimensione (64). In questo caso i risultati sono buoni. Ho provato a replicare la stessa cosa in snn_1, cioè la rete spiking che fa classificazione, ma ho problemi di CUDA OutOfMemory se non faccio il flatten, quindi lì mi conviene tenere le cose come sono state già fatte.
 
-RISULTATI COMPARISON ENCODING CAE E SAE:
+RISULTATI COMPARISON ENCODING CAE E SAE (with one linear layer):
 	
 	- Mean reconstruction error: 0.0194 (CAE) vs 0.0573 (SAE)
 	- Average sparsity of encoding: 0.7261 (CAE) vs 0.9677 (SAE)
@@ -51,14 +54,15 @@ RISULTATI COMPARISON ENCODING CAE E SAE:
 	- Size in MB of the model: 1.314 MB (CAE) vs 0.691 MB (SAE)
 	- Accuracy, conf_mx e loss molto simili
 	
-
+- Tried to make the SAE more complex, adding one linear layer: tested different values for the number of LIF neurons of the intermediate layer (16, 32, 128). The last linear layer must have 64 neurons, in order not to change the shape of the encoding
 
 
 
  NEXT STEPS:
  0) Nel LIF neuron del SAE la threshold è fissata a 1. Aumentarla x diminuire spike creation o farla imparare dalla rete?
  1) Vedere capacità di encoding dei neuroni LIF ed eventualmente sostituire CAE con SNN. In questo caso, comparare anche velocità di inferenza.
- 	1.1) Approfondire SYNAPTIC OPERATIONS (total count of synaptic events or operations that occur during the network's computation) e SPIKING ACTIVITY RATE 
+ 	1.1) Approfondire SYNAPTIC OPERATIONS (total count of synaptic events or operations that occur during the network's computation) e 
+ 	     SPIKING ACTIVITY RATE 
  	1.2) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
  2) Se encoding con neuroni LIF più potente, provare a modificare il decoder in modo tale che ricostruisca la DFT o il mu_D spectrum. Questo forzerebbe l'encoding a preservare informazioni importanti rigurardo lo spettro del segnale?
  3) Provare a cambiare tipo di regolarizzazione (usare quella con correlazione tra real e imag?)
@@ -68,10 +72,17 @@ RISULTATI COMPARISON ENCODING CAE E SAE:
  7) Efficiency of SNN given different levels of sparsity?
  
  
+ PROBLEMA: come calcolare in modo fair il consumo di energia? Posso farlo tra due reti spiking, andando a guardare il Spiking Activity Rate per layer, ma tra SNN e conventional ANN è difficile fare un confronto. 
+ Quello che posso confrontare è: tempo di training, tempo di inferenza, numero di parametri, peso del modello. Ha senso confrontare il numero di operazioni? 
+ In una ANN in ogni neurone avviene un'operazione (somma di input*peso + attivazione); in una SNN teoricamente avviene un'operazione solo se la corrente presinaptica contribuisce a produrre uno spike di output.  Sto scrivendo cazzate?
 
 
+################################à 
+MEETING W/JP, RM 23/10/24
 
-
+- Per avere più dati (soprattutto sul test) posso overlappare di 1/2 o anche 2/3 del num. totale di windows
+- Confrontare il nostro approccio (encoding a parte regolarizzato) con rete SNN che prende in input la CIR e fa direttamente la classificazione. In questo caso NON usare regolarizzazione sul numero di spikes, perché il cotnributo che vogliamo mostrare è proprio quello sulla regolarizzazione
+- Confronto con paper di Corradi "Aircraft Marshaling [...]" calcolando Range-Doppler a partire dalla CIR
 
 
 
