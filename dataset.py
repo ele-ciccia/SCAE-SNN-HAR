@@ -69,7 +69,7 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
             "You are about to regenerate the whole dataset (V2)! \n If you are sure, press enter to continue."
         )
         N_win = 232
-        delta = N_win // 2
+        overlap = N_win // 3
 
         for pass_idx in range(DATAGEN_PARAMS["N_PASSES"]):
             for n in SUBJECTS:
@@ -112,13 +112,11 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
                                 print(f"Saved {f}")
 
                             else: #chunks.shape[0] > N_win
-                                div = chunks.shape[0] // N_win
+                                div = chunks.shape[0] // overlap
 
-                                for step in range(div):
-                                    #new_chunks = chunks[step*N_win:(step+1)*N_win]
-                                    new_chunks = chunks[step*delta:(step+2)*delta]
-                                    #new_full_IHT_mD = full_IHT_mD[step*N_win:(step+1)*N_win]
-                                    new_full_IHT_mD = full_IHT_mD[step*delta:(step+2)*delta]
+                                for step in range(div-1):
+                                    new_chunks = chunks[step*overlap:(step*overlap)+N_win] # overlap 2/3
+                                    new_full_IHT_mD = full_IHT_mD[step*overlap:(step*overlap)+N_win] # overlap 2/3
 
                                     data_tuple = (new_chunks, IHT_output, new_full_IHT_mD)
 
@@ -138,9 +136,9 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
         sparse_dataset_path=DATA_PATH_V2,
         subsample_factor=1.0,
         seed=123,
-        train=0.8,
-        test=0.1,
-        valid=0.1,
+        train=0.7,
+        test=0.15,
+        valid=0.15,
     ):
         if not train + valid + test == 1.0:
             raise Exception(f"train ({train})+valid ({valid})+test ({test}) != 1")
