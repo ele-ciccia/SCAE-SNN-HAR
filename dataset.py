@@ -20,41 +20,32 @@ RAW_DATA_PATH = os.path.join(".", "data", "raw_data")
 
 # Path to where the generated processed dataset will be saved
 #DATA_PATH_V2 = os.path.join(".", "data", "processed_data")
-DATA_PATH_V2 = os.path.abspath('/home/eleonora/Documents/Papers/Learned_Spike_Encoding/PAPER_EXTENSION/data/processed_data')
+DATA_PATH_V2 = os.path.abspath('/home/eleonora/Documents/Papers/Learned_Spike_Encoding/' \
+                                'PAPER_EXTENSION/data/processed_data')
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# This constant determines how many range bins will be kept in the processed data, from the original 110
+# This constant determines how many range bins will be kept 
+# in the processed data, from the original 110
 N_KEPT_BINS = 10
 
-ACTIVITIES = [
-    "WALKING",
-    "RUNNING",
-    "SITTING",
-    "HANDS",
-]
+ACTIVITIES = ["WALKING", 
+              "RUNNING",
+              "SITTING",
+              "HANDS",]
 
-SUBJECTS = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-]
+SUBJECTS = [1, 2, 3, 4, 5, 6, 7]
 
-DATAGEN_PARAMS = {
-    "N_PASSES": 1,
-    "DIST_BOUNDS": (10, 120),
-    "NWIN": 64,
-    "TREP": 32,
-    "Nd": 64,  # original 64
-    "BP_SEL": 0,
-}
+DATAGEN_PARAMS = {"N_PASSES": 1,
+                "DIST_BOUNDS": (10, 120),
+                "LWIN": 64,
+                "TREP": 32,
+                "NWIN": 232, # corresponding to 2-3s of recording, with T=0.27ms
+                "Nd": 64,  # original 64
+                "BP_SEL": 0,}
 
+# encoding of the activities in 0,1,2,3
 class_enc = {a:[i] for i, a in enumerate(ACTIVITIES)}
-#class_enc = {a:np.eye(len(ACTIVITIES))[i] for i, a in enumerate(ACTIVITIES)}
 
 class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
     def __init__(self, filenames, p_burst=0, seed=0):
@@ -66,43 +57,49 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
     @staticmethod
     def generate_dataset(out_folder=DATA_PATH_V2):
         _ = input(
-            "You are about to regenerate the whole dataset (V2)! \n If you are sure, press enter to continue."
-        )
-        N_win = 232
-        overlap = N_win // 3
+            "You are about to regenerate the whole dataset(V2). If you are sure, press enter.")
+        
+        overlap = DATAGEN_PARAMS["NWIN"] // 2
 
         for pass_idx in range(DATAGEN_PARAMS["N_PASSES"]):
             for n in SUBJECTS:
                 for activity in ACTIVITIES:
                     for f in os.listdir(f"{RAW_DATA_PATH}/PERSON{n}"):
+                        # activity_idx = f.split("_")[0]
                         activity_idx = f.split(".")[0].split("_")[-1]
                         if activity in f:
 
                             complex_cir = get_cir(
                                 f"{RAW_DATA_PATH}/PERSON{n}/{f}",
-                                DATAGEN_PARAMS["DIST_BOUNDS"],
-                            )
+                                DATAGEN_PARAMS["DIST_BOUNDS"],)
 
                             complex_cir = complex_cir[:, :, DATAGEN_PARAMS["BP_SEL"]]
                             complex_cir -= complex_cir.mean(1, keepdims=True)
 
                             (chunks, IHT_output, full_IHT_mD,) = mD_spectrum_(
                                 complex_cir,
-                                DATAGEN_PARAMS["NWIN"],
+                                DATAGEN_PARAMS["LWIN"],
                                 DATAGEN_PARAMS["TREP"],
                                 n_kept_bins=N_KEPT_BINS,
                             )
-
+                            
                             # Now I have my couples (X, y) = (chunks, mD) inside a big list
                             # Save them one by one as a tuple (chunk, window_mD)
 
                             # Naming convention: {PASS_INDEX}_{SUBJECT}_{ACTIVITY}_{ACTIVITY_INDEX}
-                            if chunks.shape[0] < N_win:
-                                pass
 
-                            elif chunks.shape[0] == N_win:
-                                data_tuple = (chunks, IHT_output, full_IHT_mD)
+                            # check on the n. of windows
+                            if chunks.shape[0] < DATAGEN_PARAMS["NWIN"]: # discard CIR with n. of windows < N_win
+                                continue #pass
 
+                            elif chunks.shape[0] >= DATAGEN_PARAMS["NWIN"] and \
+                                chunks.shape[0] < DATAGEN_PARAMS["NWIN"] + DATAGEN_PARAMS["NWIN"]//2:
+                                new_chunks = chunks[:DATAGEN_PARAMS["NWIN"]]
+
+                                assert new_chunks.shape[0] == DATAGEN_PARAMS["NWIN"]
+
+                                data_tuple = (new_chunks, IHT_output, full_IHT_mD[:DATAGEN_PARAMS["NWIN"]])
+                                
                                 with open(
                                     f"{out_folder}/{pass_idx}_{n}_{activity}_{activity_idx}.obj",
                                     "wb",
@@ -111,15 +108,18 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
 
                                 print(f"Saved {f}")
 
-                            else: #chunks.shape[0] > N_win
+                            else: #chunks.shape[0] >= N_win + N_win//2
                                 div = chunks.shape[0] // overlap
 
                                 for step in range(div-1):
-                                    new_chunks = chunks[step*overlap:(step*overlap)+N_win] # overlap 2/3
-                                    new_full_IHT_mD = full_IHT_mD[step*overlap:(step*overlap)+N_win] # overlap 2/3
+                                    new_chunks = chunks[step*overlap:(step*overlap)+DATAGEN_PARAMS["NWIN"]] # overlap 1/2
+
+                                    assert new_chunks.shape[0] == DATAGEN_PARAMS["NWIN"]
+
+                                    new_full_IHT_mD = full_IHT_mD[step*overlap:(step*overlap)+DATAGEN_PARAMS["NWIN"]] # overlap 1/2
 
                                     data_tuple = (new_chunks, IHT_output, new_full_IHT_mD)
-
+                                    
                                     with open(
                                         f"{out_folder}/{pass_idx}_{n}_{activity}_{activity_idx}_{step}.obj",
                                         "wb",
@@ -272,12 +272,15 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
         mD_columns = torch.tensor(Xy[2])
         Y = torch.Tensor(class_enc[self.raw_filenames[idx].split('_')[2]]).to(torch.int64)
 
-        #X = torch.clamp(torch.tensor(X.detach()), min=-150, max=150) 
+        # X = torch.clamp(torch.tensor(X.detach()), min=-150, max=150) 
         X = torch.clamp(X.clone().detach(), min=-150, max=150)
 
+        # Min-max normalization
         min_values, _ = torch.min(X, dim=3, keepdim=True)
         max_values, _ = torch.max(X, dim=3, keepdim=True)
         normalized_X = (X - min_values) / (max_values - min_values)
+
+        assert normalized_X.shape[1] == 232
 
         return normalized_X, mD_columns, Y
 
@@ -285,7 +288,7 @@ if __name__ == "__main__":
     ## EXAMPLE USAGE
 
     # This static method generates and saves files in DATA_PATH_V2, using the raw data in RAW_DATA_PATH.
-    # These files are then to be used by the Pytorch dataset in the __get_item__ method
+    # These files are then to be used by the Pytorch dataset in the __getitem__ method
     # NB: takes a long time to run
     os.makedirs(DATA_PATH_V2, exist_ok=True)
     Sparse_MD_Dataset_V2.generate_dataset(out_folder=DATA_PATH_V2)

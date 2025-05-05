@@ -2,15 +2,19 @@ PREPROCESSING OF THE DATA:
 
 - The real data are measurements obtained in a lab of the department. The experiment included 7 people for which different activities were recorded multiple times. The activities are: WALKING, SITTING, RUNNING and waving HANDS. Each measurement is the CIR of shape 110 (# of range bins) x sample length, which varies from experiment to experiment. 
 - From the original matrix we extracted the FFT with windows of length 64 and stride 32, obtaining a matrix of shape (110, # of windows). Then the absolute value was taken and the top 10 range bins were kept, the other were discarded. 
+
 - Each CIR is normalized in the range [0,1] with the min-max normalization --> (X - min) / (max - min).
 - The CIR is complex: we extracted real and imaginary part to feed them to a real-valued neural network.
 - The CIR has size [2, 232, 10, 64], where 2 is given by the fact that we are considering both the real and complex part; 232 is the number of windows (we cropped the CIR with more windows, in order to have the same number of windows, and discarded CIR windows with fewer windows. In this way the neural network will process elements of the same size); 10 is the number of range bins kept; 64 is the length of each window.
+
 - We do not need lots of windows: the information useful to classify is contained in a number of windows that corresponds roughly to 2-3 seconds. For this reason, we considered chunck of 2 seconds, which roughly corresponds to 232 windows (we chose a sampling time T=0.27 ms)
 - The sequences with more than 232 windows were divided in non-overlapping sequences of 232 windows, obtaining in these way more data from the same recorded sequence.
 
-- The dataset was divided in train-valid-test with the following proportion: 0.8-0.1-0.1. The training set contains 935 elements, while the valid and test have 88 and 89 elements, respectively.
+- The dataset was divided in train-valid-test with the following proportion: 0.8-0.1-0.1. The training set contains 935 elements, while the valid and test have 88 and 89 elements, respectively. UPDATE: we have increased the number of elements in the dataset, considering an overlapping of 1/2 of the window length, when extracting the windows. At this moment the division is: 1424, 232, 232. 
+
 - To see the distribution of the activities in each set, see Real_dataset.ipynb
-- Each element of the dataset is (X, md_columns, Y) where X is the CIR signal, md_columns is the extracted mu_D spectrum and Y is the label of the activity. Le labels Y sono 0,1,2,3 (e.g., 0,.. num_classes -1) per utilizzare le loss function di snntorch
+- Each element of the dataset is (X, md_columns, Y) where X is the CIR signal, md_columns is the extracted mu_D spectrum and Y is the label of the activity. 
+- Le labels Y sono 0,1,2,3 (e.g., 0,.. num_classes -1) per utilizzare le loss function di snntorch.
 
 
 
@@ -29,19 +33,21 @@ HYPERPARAMETER OPTIMIZATION:
  [TO DO] Do multiple runs to average over more trials.
  
  - Finally, I trained the network for 150 epochs with patience 20, saving the best model in terms of accuracy in the valid set.
- Note: I used the accuracy (non-weighted) on the valid set, although all the sets are highly imbalanced. However, a naive classifier that always outputs WALKING (which is the classes with most samples) for the valid set, would achieve an accuracy of roughly 50%. So a classifier that achieves accuracy of around 90% is performing better. 
+ Note: I used the accuracy (non-weighted) on the valid set, although the classes are highly imbalanced. However, a naive classifier that always outputs WALKING (which is the class with most samples) for the valid set, would achieve an accuracy of roughly 50%. So a classifier that achieves accuracy of around 90% is performing better. (saved as model_opt_2.pt)
 
 ######
+EVALUATION METRICS
 - Implemented the function to compute accuracy, precision, recall and F1 score on the test set (see train_eval.py). It is necessary to take into account that the dataset is imbalanced (the majority of the samples belong to the WALKING category). Results on the test set are satisfactory.
 To deal with the imbalance, we compute the metrics with the macro and with the weighted average. 
 - MACRO AVG: computes metrics for each class independently and then takes the average (unweighted). This treats all classes equally regardless of their frequency, giving a better idea on how the model performs on minority classes.
 - WEIGHTED AVG: computes metrics for each class and then takes the weighted average based on the number of true instancrs per class. This gives more importance to the majority classes but still accounts for performance across all classes.
 
-- Note on the performance: for the last activity (waving hands), the model does not generalize enough to the new data. This activity is more challenging compared to the ohtre three as it involves movements of the hands that cause weak signal reflections.
+- Note on the performance: for the last activity (waving hands), the model does not generalize enough to the new data. This activity is more challenging compared to the other three as it involves movements of the hands that cause weak signal reflections.
 
 ######
+SPIKING AUTOENCODER (LIF NEURONS)
 - Added the file sae.py that implements the Spiking Autoencoder with both linear layer and convolutional layer.
-- The first idea is to test the encoding capacity of LIF neurons versus the already implemented CAE. We start the test with a very simple encoder with just linear layers. The encoder is given by one linear layer, the LIF neuron than convert the input current into spikes, which represent the encoding, and then the decoder is a linear layer followed by a sigmoid function to reconstruct the input normalized in the range [0,1].
+- The first idea is to test the encoding capacity of LIF neurons versus the already implemented CAE. We start the test with a very simple encoder with just linear layers. The encoder is given by one linear layer, the LIF neuron than convert the input current into spikes, which represent the encoding, and then the decoder is a linear layer followed by a sigmoid function to reconstruct the input normalized in the range [0,1]. 
 (model saved as model_sae1.pt)
 
 - Nota: In sae_lin non faccio il reshape di x_timestamp per farne il flatten, ma lo tengo con la sua dim originale e faccio agire Linear() direttamente sull'ultima dimensione (64). In questo caso i risultati sono buoni. Ho provato a replicare la stessa cosa in snn_1, cioè la rete spiking che fa classificazione, ma ho problemi di CUDA OutOfMemory se non faccio il flatten, quindi lì mi conviene tenere le cose come sono state già fatte.
@@ -56,6 +62,12 @@ RISULTATI COMPARISON ENCODING CAE E SAE (with one linear layer):
 	
 - Tried to make the SAE more complex, adding one linear layer: tested different values for the number of LIF neurons of the intermediate layer (16, 32, 128). The last linear layer must have 64 neurons, in order not to change the shape of the encoding
 
+#######
+SNN for classification directly from CIR
+- Implementata una prima rete (vedi file snn_class.py) con 3 linear + LIF layer (input + hidden + output).
+C'è però una differenza sulla forward part: inizialmente (nel CAE e SAE) quando estraevo il segnare da processare ad ogni timestep (i timesteps corrispondono al numero di windows=232), facevo un flatten per passare da (8, 2, 10, 64) a (8, 2*10*64)- dove 8 è la batch size. E andavo avanti coi linear layer e LIF a processare il dato fatto così. Adesso, invece, non faccio il reshape subito, ma faccio il reshape delle spikes prima dell'ultima combo di layer (spk_hid = torch.reshape(spk_hid, (spk_hid.shape[0], -1))).
+- [TO DO] controllare se questo modo di processare il dato dà risultati migliori anche per il CAE e SAE.
+
 
 
  NEXT STEPS:
@@ -64,28 +76,31 @@ RISULTATI COMPARISON ENCODING CAE E SAE (with one linear layer):
  	1.1) Approfondire SYNAPTIC OPERATIONS (total count of synaptic events or operations that occur during the network's computation) e 
  	     SPIKING ACTIVITY RATE 
  	1.2) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
- 2) Se encoding con neuroni LIF più potente, provare a modificare il decoder in modo tale che ricostruisca la DFT o il mu_D spectrum. Questo forzerebbe l'encoding a preservare informazioni importanti rigurardo lo spettro del segnale?
- 3) Provare a cambiare tipo di regolarizzazione (usare quella con correlazione tra real e imag?)
- 4) Vedere differenza tra Spike rate e spike timing come output decoding sia in termini di: accuratezza della classificazione, numero di spike prodotte, tempi di inferenza
- 5) Provare a incorporare poi POPULATION CODING
- 6) Plottare spike and membrane potential dei vari layer per vedere cosa succede (o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
- 7) Efficiency of SNN given different levels of sparsity?
+ 2) Provare a incorporare poi POPULATION CODING
+ 3) Plottare spike and membrane potential dei vari layer per vedere cosa succede (o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
+ 4) Efficiency of SNN given different levels of sparsity?
  
  
  PROBLEMA: come calcolare in modo fair il consumo di energia? Posso farlo tra due reti spiking, andando a guardare il Spiking Activity Rate per layer, ma tra SNN e conventional ANN è difficile fare un confronto. 
- Quello che posso confrontare è: tempo di training, tempo di inferenza, numero di parametri, peso del modello. Ha senso confrontare il numero di operazioni? 
- In una ANN in ogni neurone avviene un'operazione (somma di input*peso + attivazione); in una SNN teoricamente avviene un'operazione solo se la corrente presinaptica contribuisce a produrre uno spike di output.  Sto scrivendo cazzate?
+ Quello che posso confrontare è: 
+ - tempo di training
+ - tempo di inferenza
+ - numero di parametri / peso del modello
+ - # of MACs and ACCs
 
 
 ################################à 
 MEETING W/JP, RM 23/10/24
 
-- Per avere più dati (soprattutto sul test) posso overlappare di 1/2 o anche 2/3 del num. totale di windows
-- Confrontare il nostro approccio (encoding a parte regolarizzato) con rete SNN che prende in input la CIR e fa direttamente la classificazione. In questo caso NON usare regolarizzazione sul numero di spikes, perché il cotnributo che vogliamo mostrare è proprio quello sulla regolarizzazione
+- Confrontare il nostro approccio (encoding a parte regolarizzato) con rete SNN che prende in input la CIR e fa direttamente la classificazione. In questo caso NON usare regolarizzazione sul numero di spikes, perché il contributo che vogliamo mostrare è proprio quello sulla regolarizzazione
 - Confronto con paper di Corradi "Aircraft Marshaling [...]" calcolando Range-Doppler a partire dalla CIR
 
 
 
- 
- 
- 
+[TO DO]: se io non ho bisogno delle mD_columns, posso fare a meno di portarmele dietro? In questo caso modificare __getitem__() method
+
+
+
+
+
+
