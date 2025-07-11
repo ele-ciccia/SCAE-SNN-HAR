@@ -65,9 +65,19 @@ RISULTATI COMPARISON ENCODING CAE E SAE (with one linear layer):
 #######
 SNN for classification directly from CIR
 - Implementata una prima rete (vedi file snn_class.py) con 3 linear + LIF layer (input + hidden + output).
-C'è però una differenza sulla forward part: inizialmente (nel CAE e SAE) quando estraevo il segnare da processare ad ogni timestep (i timesteps corrispondono al numero di windows=232), facevo un flatten per passare da (8, 2, 10, 64) a (8, 2*10*64)- dove 8 è la batch size. E andavo avanti coi linear layer e LIF a processare il dato fatto così. Adesso, invece, non faccio il reshape subito, ma faccio il reshape delle spikes prima dell'ultima combo di layer (spk_hid = torch.reshape(spk_hid, (spk_hid.shape[0], -1))).
+C'è però una differenza sulla forward part: inizialmente (nel CAE e SAE) quando estraevo il segnale da processare ad ogni timestep (i timesteps corrispondono al numero di windows=232), facevo un flatten per passare da (8, 2, 10, 64) a (8, 2*10*64)- dove 8 è la batch size. E andavo avanti coi linear layer e LIF a processare il dato fatto così. Adesso, invece, non faccio il reshape subito, ma faccio il reshape delle spikes prima dell'ultima combo di layer (spk_hid = torch.reshape(spk_hid, (spk_hid.shape[0], -1))).
+The classifier achieves an F1 score of 0.92, smaller than the F1 score of our architecture (almost 0.97)
 - [TO DO] controllare se questo modo di processare il dato dà risultati migliori anche per il CAE e SAE.
 
+- Implementata seconda rete SNN con 1 Conv2D layer + 2 linear layers. Questa rete dà ottimi risultati -- investigare meglio (sembra essere più lenta nel training)
+- [TO DO] we include CIR sequences from subjects 1 to 5 in the training set. Capire se bisogna ricreare train, test, valid seguendo questa cosa per una fair comparison, e soprattutto studiare distribuzione delle classi in base ai soggetti per capire quanti dati avremmo in ogni set alla fine
+- Aggiungere una variabile che tiene conto del numero totale di spikes 
+
+
+####
+Aircraft Marshalling
+- Scritta funzione binary_encoding (vedi Network_training copy.ipynb) che fa l'encoding proposto nel paper di Corradi
+- Creato nuovo dataloader _enc coi dati encodati
 
 
  NEXT STEPS:
@@ -76,9 +86,8 @@ C'è però una differenza sulla forward part: inizialmente (nel CAE e SAE) quand
  	1.1) Approfondire SYNAPTIC OPERATIONS (total count of synaptic events or operations that occur during the network's computation) e 
  	     SPIKING ACTIVITY RATE 
  	1.2) Fare grafici del tipo: accuracy vs. # LIF neurons? E, in questo caso, usare CV per avere miglior stima delle metriche?
- 2) Provare a incorporare poi POPULATION CODING
- 3) Plottare spike and membrane potential dei vari layer per vedere cosa succede (o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
- 4) Efficiency of SNN given different levels of sparsity?
+ 2) Plottare spike and membrane potential dei vari layer per vedere cosa succede (o del layer finale, dipende da quanti neuroni e quanto semplice è la visualizzazione)
+ 3) Efficiency of SNN given different levels of sparsity?
  
  
  PROBLEMA: come calcolare in modo fair il consumo di energia? Posso farlo tra due reti spiking, andando a guardare il Spiking Activity Rate per layer, ma tra SNN e conventional ANN è difficile fare un confronto. 
@@ -92,15 +101,10 @@ C'è però una differenza sulla forward part: inizialmente (nel CAE e SAE) quand
 ################################à 
 MEETING W/JP, RM 23/10/24
 
-- Confrontare il nostro approccio (encoding a parte regolarizzato) con rete SNN che prende in input la CIR e fa direttamente la classificazione. In questo caso NON usare regolarizzazione sul numero di spikes, perché il contributo che vogliamo mostrare è proprio quello sulla regolarizzazione
-- Confronto con paper di Corradi "Aircraft Marshaling [...]" calcolando Range-Doppler a partire dalla CIR
-
-
-
 [TO DO]: se io non ho bisogno delle mD_columns, posso fare a meno di portarmele dietro? In questo caso modificare __getitem__() method
 
 
 
-
+Note: dubbio sul fatto che due neuroni possano spikare contemporaneamente quando si usa rate coding. Sì, possono farlo, tanto alla fine io vado a guardare la somma su tutti i timesteps. Però, se voglio qualcosa che faccia sì che sia un solo neurone per volta a spikare devo usare la CROSS ENTROPY SPIKE RATE: the correct class is encouraged to fire at all time steps, while the incorrect classes are suppressed at all time steps. Vedi Training SNNs using lessons from DL pag 42.
 
 
