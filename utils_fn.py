@@ -91,8 +91,7 @@ def model_size_in_mb(model):
 ######################################################
 # Function to plot training curves on train and valid 
 ######################################################
-def plot_curves(train_loss, val_loss, 
-                train_acc, val_acc,
+def plot_curves(train_loss, val_loss, train_acc, val_acc,
                 save_fig=False, name=None):
     epochs = np.arange(1, len(train_loss) + 1)
     fig, axs = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
