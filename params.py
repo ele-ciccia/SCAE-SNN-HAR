@@ -7,7 +7,6 @@ params_train = {
                 "l_rate": 1e-4, 
                 "lambda_reg": 0.3, 
                 "alpha": 0.85, 
-                "beta": 0.15, 
                 "patience": 10,
 }
 
@@ -21,7 +20,7 @@ params_cae = {
 }
 
 params_snn = {
-                "hidden_layers": [128,64],
+                "hidden_layers": [64, 32],
                 "num_classes": 4,
                 "surrogate_grad": surrogate.fast_sigmoid(), 
                 "learn_thr": True, 

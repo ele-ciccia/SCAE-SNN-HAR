@@ -21,7 +21,7 @@ RAW_DATA_PATH = os.path.join(".", "data", "raw_data")
 # Path to where the generated processed dataset will be saved
 #DATA_PATH_V2 = os.path.join(".", "data", "processed_data")
 DATA_PATH_V2 = os.path.abspath('/home/eleonora/Documents/Papers/Learned_Spike_Encoding/' \
-                                'PAPER_EXTENSION/data/processed_data')
+                                'PAPER_EXTENSION/data/processed_data1')
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -41,7 +41,7 @@ DATAGEN_PARAMS = {"N_PASSES": 1,
                 "LWIN": 64,
                 "TREP": 32,
                 "NWIN": 232, # corresponding to 2-3s of recording, with T=0.27ms
-                "Nd": 64,  # original 64
+                "Nd": 64,  
                 "BP_SEL": 0,}
 
 # encoding of the activities in 0,1,2,3
@@ -136,9 +136,9 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
         sparse_dataset_path=DATA_PATH_V2,
         subsample_factor=1.0,
         seed=123,
-        train=0.7,
-        test=0.15,
-        valid=0.15,
+        train=1,
+        test=0,
+        valid=0,
     ):
         if not train + valid + test == 1.0:
             raise Exception(f"train ({train})+valid ({valid})+test ({test}) != 1")
@@ -184,6 +184,41 @@ class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
 
         train_set = np.array(train_set)
         return train_set, valid_set, test_set
+
+
+
+    @staticmethod
+    def make_splits1(
+        subjects,
+        activities,
+        sparse_dataset_path=DATA_PATH_V2,
+        subsample_factor=1.0,
+        seed=123,
+    ):
+        rng = np.random.default_rng(seed=seed)
+        all_filenames = os.listdir(sparse_dataset_path)
+
+        # Select only files containing desired activities
+        all_filenames = [f for f in all_filenames if any(a in f for a in activities)]
+
+        # Apply subsampling
+        nsamples = int(len(all_filenames) * subsample_factor)
+        all_filenames = rng.choice(all_filenames, nsamples, replace=False)
+
+        # Separate filenames by subject ID
+        train_set = [f for f in all_filenames if int(get_subj_from_filename(f)) in [1, 2, 3, 4, 6]]
+        valid_set = [f for f in all_filenames if int(get_subj_from_filename(f)) == 5]
+        test_set  = [f for f in all_filenames if int(get_subj_from_filename(f)) == 7]
+
+        # Balance "RUNNING" vs "WALKING" in train set
+        running_filenames = [f for f in train_set if "RUNNING" in f]
+        walking_filenames = [f for f in train_set if "WALKING" in f]
+
+        for _ in range(len(walking_filenames) - len(running_filenames)):
+            train_set.append(rng.choice(running_filenames))
+
+        return np.array(train_set), np.array(valid_set), np.array(test_set)
+
 
     def generate_mask(
         self,
