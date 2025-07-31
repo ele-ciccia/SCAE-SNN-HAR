@@ -13,28 +13,30 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, \
 # Class to train the network end-to-end
 ########################################
 class Trainer:
-    def __init__(self, model, optimizer, recon_loss, class_loss, **kwargs):
+    def __init__(self, model, optimizer, device, **kwargs):
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = model.to(self.device)
         self.optimizer = optimizer
-        self.recon_loss = recon_loss
-        self.class_loss = class_loss
+
+        self.recon_loss = torch.nn.MSELoss()
+        self.class_loss = SF.ce_count_loss()
+
         self.scaler = torch.cuda.amp.GradScaler()
 
         # Optional training parameters
         self.alpha = kwargs.get('alpha', 0.5)
         self.Lambda = kwargs.get('Lambda', 0.3)
-        self.acc_steps = kwargs.get('acc_steps', None)
+        self.acc_steps = kwargs.get('acc_steps', 1)
         self.patience = kwargs.get('patience', 10)
-        self.path = kwargs.get('save_path', None)
+        self.path = kwargs.get('model_path', None)
 
         # Tracking metrics
         self.train_loss_ls = [];   self.val_loss_ls = []
         self.train_acc_ls = [];    self.val_acc_ls = []
 
     def compute_loss(self, decoded, X, spk_out, y, sparsity):
-        cae_loss = self.recon_loss(decoded, X)
+        cae_loss = self.recon_loss(decoded.squeeze(), X)
         snn_loss = self.class_loss(spk_out, y)
         total_loss = self.alpha * cae_loss + (1-self.alpha) * snn_loss\
                      + self.Lambda * sparsity
@@ -48,24 +50,27 @@ class Trainer:
         for batch, (X, _, y) in enumerate(dataloader):
             X, y = X.squeeze().to(self.device).float(), y.squeeze().to(self.device)
             
-            with torch.autocast(device_type=self.device.type):
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16):
                 sparsity_enc, decoded, spk_out = self.model(X)
+                #print(sparsity_enc.detach())
                 loss = self.compute_loss(decoded, X, spk_out, y, sparsity_enc)
-                    
-                self.scaler.scale(loss).backward()
+                #loss = loss / self.acc_steps    
+            self.scaler.scale(loss).backward()
                 
-                if not self.acc_steps or ((batch+1) % self.acc_steps == 0):
-                    self.scaler.step(self.optimizer)
-                    self.scaler.update()
-                    self.optimizer.zero_grad()
+            if (batch+1) % self.acc_steps == 0:
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+                self.optimizer.zero_grad()
 
-                preds = torch.argmax(spk_out.sum(0), dim=1)                    
-                train_acc += (preds == y).float().mean().item()
-                train_loss += loss.item()
-
+            preds = torch.argmax(spk_out.sum(0), dim=1)       
+                #print(f'Preds {preds}') 
+                #print(f'y {y}')            
+            train_acc += (preds == y).float().mean().item()
+            train_loss += loss.item()
+            
         torch.cuda.empty_cache()       
-        avg_loss = train_loss / len(dataloader)
-        avg_acc = train_acc / len(dataloader)
+        avg_loss = train_loss / len(dataloader) / self.acc_steps    
+        avg_acc = train_acc / len(dataloader) / self.acc_steps    
         return avg_loss, avg_acc
 
     def evaluate(self, dataloader):

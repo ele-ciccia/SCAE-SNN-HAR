@@ -131,7 +131,7 @@ class cae_3(nn.Module):
 class snn_1(nn.Module):
 
     def __init__(self, input_shape, hidden, timesteps, kernel, stride,
-                 n_classes, surr_grad, learn_thr, learn_beta):
+                 beta, threshold, learn_thr, learn_beta, surr_grad):
         super(snn_1, self).__init__()
 
         self.input_shape = input_shape        
@@ -139,10 +139,13 @@ class snn_1(nn.Module):
         self.timesteps = timesteps
         self.kernel = kernel
         self.stride = stride
-        self.n_classes = n_classes
-        self.surr_grad = surr_grad
+        self.beta = beta
+        self.threshold = threshold
         self.learn_thr = learn_thr
         self.learn_beta = learn_beta
+        self.surr_grad = surr_grad
+        self.n_classes = 4
+
         self.input_dim = int((self.input_shape[-1]-self.kernel[-1])/self.stride[-1]+1)*\
                          int((self.input_shape[-2]-self.kernel[-2])/self.stride[-2]+1)
         self.in_feat_dim = self.input_shape[0]*self.hidden[1]*\
@@ -151,21 +154,19 @@ class snn_1(nn.Module):
         # layer input
         self.avg_pool = nn.AvgPool3d(self.kernel, self.stride)
         self.fc_in = nn.Linear(in_features=self.input_dim, out_features=self.hidden[0])
-        self.lif_in = snn.Leaky(beta=torch.rand(self.hidden[0]), 
-                                threshold=torch.rand(self.hidden[0]),
+        self.lif_in = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                 learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
                                 spike_grad=self.surr_grad)
 
         # layer hidden
         self.fc_hidden = nn.Linear(in_features=self.hidden[0], out_features=self.hidden[1])
-        self.lif_hidden = snn.Leaky(beta=torch.rand(self.hidden[1]), 
-                                    threshold=torch.rand(self.hidden[1]),
+        self.lif_hidden = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                     learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
                                     spike_grad=self.surr_grad)
         
         # layer output
         self.fc_out = nn.Linear(in_features=self.in_feat_dim, out_features=self.n_classes)
-        self.li_out = snn.Leaky(beta=torch.rand(self.n_classes), threshold=1.0,
+        self.li_out = snn.Leaky(beta=self.beta, threshold=1.0,
                                 #learn_threshold=self.learn_thr, 
                                 learn_beta=self.learn_beta,
                                 spike_grad=self.surr_grad)
@@ -183,6 +184,7 @@ class snn_1(nn.Module):
             start = step * chunk_size; end = start + chunk_size
             x = x.squeeze()           
             x_tmstp = x[:, :, start:end, :, :] # extract the portion of windows
+            #print(x_tmstp.shape)
             x_tmstp = self.avg_pool(x_tmstp) # downsample the dimensions
             # reshape the tensor
             shape = x_tmstp.shape
@@ -515,7 +517,9 @@ class scae(nn.Module):
         # Layer 1
         self.dec_conv1 = nn.ConvTranspose3d(2, self.channels[0], self.kernel_size,
                                             stride=self.stride, 
-                                            padding=[0,0,2])
+                                            #padding=[0,0,2],
+                                            padding=[0,0, (self.kernel_size[-1]-1) // 2]
+                                            )
         self.dec_bn1 = nn.BatchNorm3d(num_features = self.channels[0])
         self.dec_lif1 = snn.Leaky(beta=beta, threshold=threshold,
                                     learn_beta=self.learn_beta, 
@@ -524,7 +528,8 @@ class scae(nn.Module):
         # Layer 2
         self.dec_conv2 = nn.ConvTranspose3d(self.channels[0], 2, self.kernel_size,
                                             stride=self.stride, 
-                                            padding=[0,0,2])
+                                            padding=[0,0, (self.kernel_size[-1]-1) // 2]
+                                            )
         self.dec_bn2 = nn.BatchNorm3d(num_features = 2)
         self.sigmoid = nn.Sigmoid()                           
 
@@ -565,4 +570,80 @@ class scae(nn.Module):
             encoding = torch.stack(spk_rec_enc, dim=0)
             decoding = torch.stack(spk_rec_dec, dim=0)
 
+        return encoding, decoding
+
+
+#
+class scae1(nn.Module):
+    def __init__(self, channels, kernel_size, stride, beta, threshold, 
+                 surr_grad, learn_beta, learn_threshold, timesteps):
+        super(scae1, self).__init__()
+
+        self.timesteps = timesteps
+        self.channels = channels  # Now: list of layer widths, e.g., [16, 32, 64]
+
+        # Encoder
+        self.enc_convs = nn.ModuleList()
+        self.enc_bns = nn.ModuleList()
+        self.enc_lifs = nn.ModuleList()
+
+        in_channels = 2
+        for out_channels in channels:
+            self.enc_convs.append(nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding='same'))
+            self.enc_bns.append(nn.BatchNorm3d(out_channels))
+            self.enc_lifs.append(snn.Leaky(beta=beta, threshold=threshold, learn_beta=learn_beta, 
+                                           learn_threshold=learn_threshold, spike_grad=surr_grad))
+            in_channels = out_channels
+
+        # Bottleneck layer
+        self.enc_convs.append(nn.Conv3d(in_channels, 2, kernel_size, stride=stride, padding='same'))
+        self.enc_bns.append(nn.BatchNorm3d(2))
+        self.enc_lifs.append(snn.Leaky(beta=beta, threshold=1.0, learn_beta=learn_beta, spike_grad=surr_grad))
+
+        # Decoder
+        self.dec_convs = nn.ModuleList()
+        self.dec_bns = nn.ModuleList()
+        self.dec_lifs = nn.ModuleList()
+
+        in_channels = 2
+        for out_channels in reversed(channels):
+            self.dec_convs.append(nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=[0,0,2]))
+            self.dec_bns.append(nn.BatchNorm3d(out_channels))
+            self.dec_lifs.append(snn.Leaky(beta=beta, threshold=threshold, learn_beta=learn_beta, 
+                                           learn_threshold=learn_threshold, spike_grad=surr_grad))
+            in_channels = out_channels
+
+        self.dec_convs.append(nn.ConvTranspose3d(in_channels, 2, kernel_size, stride=stride, padding=[0,0,2]))
+        self.dec_bns.append(nn.BatchNorm3d(2))
+        self.output_act = nn.Sigmoid()
+
+
+    def forward(self, x):
+        mem_enc = [lif.init_leaky() for lif in self.enc_lifs]
+        mem_dec = [lif.init_leaky() for lif in self.dec_lifs]
+
+        spk_rec_enc = []
+        spk_rec_dec = []
+
+        chunk_size = x.shape[2] // self.timesteps
+
+        for step in range(self.timesteps):
+            x_tmstp = x[:, :, step*chunk_size:(step+1)*chunk_size, :, :]
+
+            cur = x_tmstp
+            for i in range(len(self.enc_convs)):
+                cur = self.enc_bns[i](self.enc_convs[i](cur))
+                cur, mem_enc[i] = self.enc_lifs[i](cur, mem_enc[i])
+            spike_enc = cur
+            spk_rec_enc.append(spike_enc)
+
+            for i in range(len(self.dec_convs)):
+                cur = self.dec_bns[i](self.dec_convs[i](cur))
+                if i < len(self.dec_lifs):  # Output layer has no LIF
+                    cur, mem_dec[i] = self.dec_lifs[i](cur, mem_dec[i])
+            x_dec = self.output_act(cur)
+            spk_rec_dec.append(x_dec)
+
+        encoding = torch.stack(spk_rec_enc, dim=0)
+        decoding = torch.stack(spk_rec_dec, dim=0)
         return encoding, decoding
