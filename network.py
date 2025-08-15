@@ -498,15 +498,15 @@ class scae(nn.Module):
 
         ### Encoder 
         # Layer 1
-        self.enc_conv1 = nn.Conv3d(2, self.channels[0], self.kernel_size,
+        self.enc_conv1 = nn.Conv3d(2, self.channels, self.kernel_size,
                                     stride=self.stride, padding='same')
-        self.enc_bn1 = nn.BatchNorm3d(num_features = self.channels[0])
+        self.enc_bn1 = nn.BatchNorm3d(num_features = self.channels)
         self.enc_lif1 = snn.Leaky(beta=beta, threshold=threshold,
                                     learn_beta=self.learn_beta, 
                                     learn_threshold = self.learn_thr,
                                     spike_grad=self.surr_grad)
         # Layer 2
-        self.enc_conv2 = nn.Conv3d(self.channels[0], 2, self.kernel_size,
+        self.enc_conv2 = nn.Conv3d(self.channels, 2, self.kernel_size,
                                     stride=self.stride, padding='same')
         self.enc_bn2 = nn.BatchNorm3d(num_features = 2)
         self.enc_lif2 = snn.Leaky(beta=beta, threshold=1.0,
@@ -515,20 +515,20 @@ class scae(nn.Module):
 
         ### Decoder
         # Layer 1
-        self.dec_conv1 = nn.ConvTranspose3d(2, self.channels[0], self.kernel_size,
+        self.dec_conv1 = nn.ConvTranspose3d(2, self.channels, self.kernel_size,
                                             stride=self.stride, 
                                             #padding=[0,0,2],
-                                            padding=[0,0, (self.kernel_size[-1]-1) // 2]
+                                            padding=[0,0,(self.kernel_size[-1]-1)//2]
                                             )
-        self.dec_bn1 = nn.BatchNorm3d(num_features = self.channels[0])
+        self.dec_bn1 = nn.BatchNorm3d(num_features = self.channels)
         self.dec_lif1 = snn.Leaky(beta=beta, threshold=threshold,
                                     learn_beta=self.learn_beta, 
                                     learn_threshold = self.learn_thr,
                                     spike_grad=self.surr_grad)
         # Layer 2
-        self.dec_conv2 = nn.ConvTranspose3d(self.channels[0], 2, self.kernel_size,
+        self.dec_conv2 = nn.ConvTranspose3d(self.channels, 2, self.kernel_size,
                                             stride=self.stride, 
-                                            padding=[0,0, (self.kernel_size[-1]-1) // 2]
+                                            padding=[0,0,(self.kernel_size[-1]-1)//2]
                                             )
         self.dec_bn2 = nn.BatchNorm3d(num_features = 2)
         self.sigmoid = nn.Sigmoid()                           
