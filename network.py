@@ -25,43 +25,44 @@ class HeavisideCustomFunction(torch.autograd.Function):
 class HeavisideCustom(nn.Module):
     def __init__(self, tau):
         super(HeavisideCustom, self).__init__()
+        self.tau = tau
 
-    def forward(self, x, tau=.15):
-        x = HeavisideCustomFunction.apply(x, tau)
+    def forward(self, x):
+        x = HeavisideCustomFunction.apply(x, self.tau)
         return x
     
 ####################
 # CAE with 2 layers
 ####################
 class cae_2(nn.Module):
-    def __init__(self, tau, channels, kernel_size, stride, padding):
+    def __init__(self, tau, channels, kernel_size, stride):
         super(cae_2, self).__init__()
 
         self.tau = tau
         self.kernel_size = kernel_size
         self.channels = channels
         self.stride = stride
-        self.padding = padding
+
         self.encoder = nn.Sequential(
-                                    nn.Conv3d(2, self.channels[0], self.kernel_size,
+                                    nn.Conv3d(2, self.channels, self.kernel_size,
                                                   stride= self.stride, padding='same'),
-                                    nn.BatchNorm3d(num_features = self.channels[0]),
-                                    nn.Tanh(),
-                                    nn.Conv3d(self.channels[0], 2, self.kernel_size,
+                                    nn.BatchNorm3d(num_features = self.channels),
+                                    nn.ReLU(),
+                                    nn.Conv3d(self.channels, 2, self.kernel_size,
                                                   stride=self.stride, padding='same'),
                                     nn.BatchNorm3d(num_features = 2),
                                     HeavisideCustom(tau= self.tau)
                                     )
 
         self.decoder = nn.Sequential(
-                                    nn.ConvTranspose3d(2, self.channels[0], self.kernel_size,
+                                    nn.ConvTranspose3d(2, self.channels, self.kernel_size,
                                                         stride=self.stride, 
-                                                        padding=self.padding),
-                                    nn.BatchNorm3d(num_features = self.channels[0]),
-                                    nn.Tanh(),
-                                    nn.ConvTranspose3d(self.channels[0], 2, self.kernel_size,
+                                                        padding=[0,0,(self.kernel_size[-1]-1)//2]),
+                                    nn.BatchNorm3d(num_features = self.channels),
+                                    nn.ReLU(),
+                                    nn.ConvTranspose3d(self.channels, 2, self.kernel_size,
                                                            stride=self.stride, 
-                                                           padding=self.padding),
+                                                           padding=[0,0,(self.kernel_size[-1]-1)//2]),
                                     nn.BatchNorm3d(num_features = 2),
                                     nn.Sigmoid()
                                     )
@@ -76,14 +77,13 @@ class cae_2(nn.Module):
 # CAE with 3 layers
 ####################
 class cae_3(nn.Module):
-    def __init__(self, tau, channels, kernel_size, stride, padding):
+    def __init__(self, tau, channels, kernel_size, stride):
         super(cae_3, self).__init__()
 
         self.tau = tau
         self.kernel_size = kernel_size
         self.channels = channels
         self.stride = stride
-        self.padding = padding
 
         self.encoder = nn.Sequential(
                                     nn.Conv3d(2, self.channels[0], self.kernel_size,
@@ -104,17 +104,17 @@ class cae_3(nn.Module):
         self.decoder = nn.Sequential(
                                     nn.ConvTranspose3d(2, self.channels[1], self.kernel_size,
                                                            stride=self.stride, 
-                                                           padding=self.padding),
+                                                           padding=[0,0,(self.kernel_size[-1]-1)//2]),
                                     nn.BatchNorm3d(num_features = self.channels[1]),
                                     nn.Tanh(),
                                     nn.ConvTranspose3d(self.channels[1], self.channels[0], 
                                                            self.kernel_size, stride=self.stride, 
-                                                           padding=self.padding),
+                                                           padding=[0,0,(self.kernel_size[-1]-1)//2]),
                                     nn.BatchNorm3d(num_features = self.channels[0]),
                                     nn.Tanh(),
                                     nn.ConvTranspose3d(self.channels[0], 2, self.kernel_size,
                                                            stride=self.stride, 
-                                                           padding=self.padding),
+                                                           padding=[0,0,(self.kernel_size[-1]-1)//2]),
                                     nn.BatchNorm3d(num_features = 2),
                                     nn.Sigmoid()
                                     )
@@ -182,7 +182,8 @@ class snn_1(nn.Module):
 
         for step in range(self.timesteps): 
             start = step * chunk_size; end = start + chunk_size
-            x = x.squeeze()           
+            if len(x.shape) > 5:
+                x = x.squeeze(0)        
             x_tmstp = x[:, :, start:end, :, :] # extract the portion of windows
             #print(x_tmstp.shape)
             x_tmstp = self.avg_pool(x_tmstp) # downsample the dimensions
@@ -218,71 +219,97 @@ class snn_1(nn.Module):
 ############################################
 class snn_2(nn.Module):
 
-    def __init__(self, input_dim, hidden, n_classes, 
-                 surr_grad, learn_thr, learn_beta):
+    def __init__(self, input_shape, hidden, timesteps, kernel, stride,
+                 beta, threshold, learn_thr, learn_beta, surr_grad):
         super(snn_2, self).__init__()
 
-        self.input_dim = input_dim        
+        self.input_shape = input_shape        
         self.hidden = hidden
-        self.n_classes = n_classes
-        self.surr_grad = surr_grad
+        self.timesteps = timesteps
+        self.kernel = kernel
+        self.stride = stride
+        self.beta = beta
+        self.threshold = threshold
         self.learn_thr = learn_thr
         self.learn_beta = learn_beta
+        self.surr_grad = surr_grad
+        self.n_classes = 4
 
+        self.input_dim = int((self.input_shape[-1]-self.kernel[-1])/self.stride[-1]+1)*\
+                         int((self.input_shape[-2]-self.kernel[-2])/self.stride[-2]+1)
+        self.in_feat_dim = self.input_shape[0]*self.hidden[-1]*\
+                           int((N_WIN//self.timesteps-self.kernel[-3])/self.stride[-3]+1)
+        
         # layer input
-        self.fc_in = nn.Linear(in_features=input_dim, out_features=self.hidden[0])
-        self.lif_in = snn.Leaky(beta=torch.rand(self.hidden[0]), 
-                                threshold=torch.rand(self.hidden[0]),
+        self.avg_pool = nn.AvgPool3d(self.kernel, self.stride)
+        self.fc_in = nn.Linear(in_features=self.input_dim, out_features=self.hidden[0])
+        self.lif_in = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                 learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
                                 spike_grad=self.surr_grad)
 
         # layer hidden 1 
         self.fc_hidden1 = nn.Linear(in_features=self.hidden[0], out_features=self.hidden[1])
-        self.lif_hidden1 = snn.Leaky(beta=torch.rand(self.hidden[1]), 
-                                    threshold=torch.rand(self.hidden[1]),
+        self.lif_hidden1 = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                     learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
                                     spike_grad=self.surr_grad)
-        # layer 3hidden 2
+        # layer hidden 2
         self.fc_hidden2 = nn.Linear(in_features=self.hidden[1], out_features=self.hidden[2])
-        self.lif_hidden2 = snn.Leaky(beta=torch.rand(self.hidden[2]), 
-                                    threshold=torch.rand(self.hidden[2]),
+        self.lif_hidden2 = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                     learn_beta=self.learn_beta, learn_threshold=self.learn_thr, 
                                     spike_grad=self.surr_grad)
         
         # layer output
-        self.fc_out = nn.Linear(in_features=self.hidden[2], out_features=n_classes)
-        self.li_out = snn.Leaky(beta=torch.rand(n_classes), threshold=1.0,learn_threshold=self.learn_thr, 
+        self.fc_out = nn.Linear(in_features=self.in_feat_dim, out_features=self.n_classes)
+        self.lif_out = snn.Leaky(beta=self.beta, threshold=1.0,
+                                #learn_threshold=self.learn_thr, 
                                 learn_beta=self.learn_beta,
                                 spike_grad=self.surr_grad)
 
     def forward(self, x):
 
-        mem_1 = self.lif_in.init_leaky()
-        mem_2 = self.lif_hidden1.init_leaky()
-        mem_3 = self.lif_hidden2.init_leaky()
-        mem_o = self.li_out.init_leaky()
+        mem_in = self.lif_in.init_leaky()
+        mem_hid1 = self.lif_hidden1.init_leaky()
+        mem_hid2 = self.lif_hidden2.init_leaky()
+        mem_out = self.lif_out.init_leaky()
 
-        spk_rec = []
-        mem_rec = []
+        spk_rec = []; mem_rec = []
+        chunk_size = N_WIN // self.timesteps
 
-        for step in range(x.shape[2]): # n. timesteps = n. windows
-
-            x_tmstp = torch.reshape(x[:, :, step, :, :], (x.shape[0], -1)) 
+        for step in range(self.timesteps): 
+            start = step * chunk_size; end = start + chunk_size
+            if len(x.shape) > 5:
+                x = x.squeeze(0)        
+            x_tmstp = x[:, :, start:end, :, :] # extract the portion of windows
+            x_tmstp = self.avg_pool(x_tmstp) # downsample the dimensions
+            # reshape the tensor
+            shape = x_tmstp.shape
+            x_reshaped = x_tmstp.view(shape[0], shape[1]*shape[2], -1) 
             
-            cur_in = self.fc_in(x_tmstp) 
-            spk_in, mem_1 = self.lif_in(cur_in, mem_1)
+            # first layer
+            cur_in = self.fc_in(x_reshaped) 
+            spk_in, mem_in = self.lif_in(cur_in, mem_in)
 
-            cur_hidden1 = self.fc_hidden1(spk_in) 
-            spk_hidden1, mem_2 = self.lif_hidden1(cur_hidden1, mem_2)
+            # second layer
+            cur_hid1 = self.fc_hidden1(spk_in)
+            del cur_in, spk_in
+            spk_hid1, mem_hid1 = self.lif_hidden1(cur_hid1, mem_hid1)
             
-            cur_hidden2 = self.fc_hidden2(spk_hidden1) 
-            spk_hidden2, mem_3 = self.lif_hidden2(cur_hidden2, mem_3)
+            # third layer
+            cur_hid2 = self.fc_hidden2(spk_hid1)
+            del cur_hid1, spk_hid1
+            spk_hid2, mem_hid2 = self.lif_hidden2(cur_hid2, mem_hid2)
 
-            cur_out = self.fc_out(spk_hidden2) 
-            spk_out, mem_o = self.li_out(cur_out, mem_o)
+            # flatten - keeping the batch size
+            spk_hid2 = spk_hid2.view(spk_hid2.shape[0], -1) 
+
+            # last layer
+            cur_out = self.fc_out(spk_hid2) # ~ [batch, num_classes]
+            del cur_hid2, spk_hid2
+            spk_out, mem_out = self.lif_out(cur_out, mem_out)
 
             spk_rec.append(spk_out)
-            mem_rec.append(mem_o)
+            #mem_rec.append(mem_out)
+            del cur_out, spk_out
 
         return torch.stack(spk_rec, dim=0)#, torch.stack(mem_rec, dim=0)
     
@@ -362,6 +389,112 @@ class snn_conv(nn.Module):
             amplitudes = self.sigmoid(mem_a)
 
         return frequencies, amplitudes
+
+#######################################
+# SNN for classif. - 2 Conv + 2 Linear
+#######################################
+class snn_conv2(nn.Module):
+
+    def __init__(self, input_shape, channels, kernel_size, hidden, timesteps, 
+                 beta, threshold, learn_thr, learn_beta, surr_grad):
+        super(snn_conv2, self).__init__()
+
+        self.input_shape = input_shape        
+        self.channels = channels
+        self.kernel_size = kernel_size
+        self.hidden = hidden
+        self.timesteps = timesteps
+        self.beta = beta
+        self.threshold = threshold
+        self.learn_thr = learn_thr
+        self.learn_beta = learn_beta
+        self.surr_grad = surr_grad
+        self.n_classes = 4
+
+        # Layer 1 conv
+        self.conv1 = nn.Conv3d(in_channels=self.input_shape[0],
+                               out_channels=self.channels[0],
+                               kernel_size=self.kernel_size,
+                               stride=1, padding='same')
+        self.lif1 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                              learn_beta=self.learn_beta, learn_threshold=self.learn_thr,
+                              spike_grad=self.surr_grad)
+
+        # Layer 2 conv
+        self.conv2 = nn.Conv2d(in_channels=self.channels[0],
+                               out_channels=self.channels[1],
+                               kernel_size = self.kernel_size,
+                               stride=1, padding='same')
+        self.lif2 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                              learn_beta=self.learn_beta,
+                              learn_threshold=self.learn_thr,
+                              spike_grad=self.surr_grad)
+
+        dummy = torch.zeros(1, *self.input_shape[0:3], self.input_shape[-2], self.input_shape[-1])
+        dummy = dummy.squeeze(0)[:, 0, :, :]  # [C, H, W] example slice
+        feat_h, feat_w = self.input_shape[-2], self.input_shape[-1]  # keep original shape
+        in_feat_dim = self.channels[1] * feat_h * feat_w
+
+        # Layer 3 linear
+        self.fc1 = nn.Linear(in_features=in_feat_dim,
+                             out_features=self.hidden)
+        self.lif3 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                              learn_beta=self.learn_beta,
+                              learn_threshold=self.learn_thr,
+                              spike_grad=self.surr_grad)
+
+        self.fc2 = nn.Linear(in_features=self.hidden,
+                             out_features=self.n_classes)
+        self.lif4 = snn.Leaky(beta=self.beta, threshold=1.0,
+                              learn_beta=self.learn_beta,
+                              spike_grad=self.surr_grad)
+
+    def forward(self, x):
+
+        # initialize LIF states
+        mem1 = self.lif1.init_leaky()
+        mem2 = self.lif2.init_leaky()
+        mem3 = self.lif3.init_leaky()
+        mem4 = self.lif4.init_leaky()
+
+        spk_rec = []
+        chunk_size = N_WIN // self.timesteps
+
+        for step in range(self.timesteps):
+            start = step * chunk_size
+            end = start + chunk_size
+            if len(x.shape) > 5:
+                x = x.squeeze(0)
+
+            # take temporal chunk [batch, ch, time, H, W]
+            x_tmstp = x[:, :, start:end, :, :]
+            x_tmstp = torch.mean(x_tmstp, dim=2)  # collapse time -> [B, C, H, W]
+
+            # conv1 + lif1
+            cur1 = self.conv1(x_tmstp)
+            spk1, mem1 = self.lif1(cur1, mem1)
+
+            # conv2 + lif2
+            cur2 = self.conv2(spk1)
+            spk2, mem2 = self.lif2(cur2, mem2)
+
+            # flatten
+            spk2_flat = spk2.view(spk2.size(0), -1)
+
+            # fc1 + lif3
+            cur3 = self.fc1(spk2_flat)
+            spk3, mem3 = self.lif3(cur3, mem3)
+
+            # fc2 + lif4 (output)
+            cur4 = self.fc2(spk3)
+            spk4, mem4 = self.lif4(cur4, mem4)
+
+            spk_rec.append(spk4)
+
+            # cleanup
+            del cur1, cur2, cur3, cur4, spk1, spk2, spk2_flat, spk3, spk4
+
+        return torch.stack(spk_rec, dim=0)
 
 ################################
 # SAE with 2 layers (enc + dec)    # former sae_lin
