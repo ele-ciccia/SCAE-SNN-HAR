@@ -1,6 +1,7 @@
 import tqdm
 import time
 import torch
+import torch.nn as nn
 from torch.cuda.amp import autocast
 import numpy as np
 import snntorch.functional as SF
@@ -19,7 +20,7 @@ class Trainer:
         self.model = model.to(self.device)
         self.optimizer = optimizer
 
-        self.weights = torch.tensor([0.057, 0.057, 0.057, 0.826]).to(self.device)
+        self.weights = torch.tensor([0.3, 0.3, 0.6, 1.0]).to(self.device)
         self.recon_loss = torch.nn.MSELoss()
         self.class_loss = SF.ce_count_loss(weight=self.weights) 
         #The spikes at each time step [num_steps x batch_size x num_outputs]
@@ -40,6 +41,7 @@ class Trainer:
 
     def compute_loss(self, decoded, X, spk_out, y, num_spikes):
         cae_loss = self.recon_loss(decoded.squeeze(), X)
+
         #if cae_loss.item() > 0:
         #    print(cae_loss.item())
         snn_loss = self.class_loss(spk_out, y)
@@ -171,9 +173,9 @@ class Trainer:
     
 
 
-############################################
-# Function to train the Spiking classifier #
-############################################
+###########################################
+# Function to train the Spiking classifier 
+###########################################
 def train_snn(model, train, valid, optimizer, epochs, patience, path, verbose = True):
     
     train_loss_list, val_loss_list = [], []
@@ -248,3 +250,122 @@ def train_snn(model, train, valid, optimizer, epochs, patience, path, verbose = 
     return train_loss_list, val_loss_list, train_acc_list, val_acc_list
 
 
+
+#############################################
+# Function to train the CNN classifier (DISC)
+#############################################
+
+class CNNTrainer:
+    def __init__(self, model, optimizer, device=None, class_weights=None, patience=10):
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu") if device is None else device
+        self.model = model.to(self.device)
+        self.optimizer = optimizer
+
+        # Loss: CrossEntropy with optional weights
+        if class_weights is not None:
+            weights = torch.tensor(class_weights, dtype=torch.float32).to(self.device)
+            self.criterion = nn.CrossEntropyLoss(weight=weights)
+        else:
+            self.criterion = nn.CrossEntropyLoss()
+
+        self.patience = patience
+        self.train_loss, self.val_loss = [], []
+        self.train_f1, self.val_f1 = [], []
+
+    def train_epoch(self, dataloader):
+        self.model.train()
+        total_loss, all_preds, all_labels = 0.0, [], []
+
+        for X, y in dataloader:
+            X, y = X.to(self.device).float(), y.to(self.device)
+
+            logits = self.model(X)
+            loss = self.criterion(logits, y)
+
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+            total_loss += loss.item()
+            preds = torch.argmax(logits, dim=1)
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(y.cpu().numpy())
+
+        avg_loss = total_loss / len(dataloader)
+        f1 = f1_score(all_labels, all_preds, average="macro")
+        return avg_loss, f1
+
+    def evaluate(self, dataloader):
+        self.model.eval()
+        total_loss, all_preds, all_labels = 0.0, [], []
+
+        with torch.no_grad():
+            for X, y in dataloader:
+                X, y = X.to(self.device).float(), y.to(self.device)
+                logits = self.model(X)
+                loss = self.criterion(logits, y)
+
+                total_loss += loss.item()
+                preds = torch.argmax(logits, dim=1)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(y.cpu().numpy())
+
+        avg_loss = total_loss / len(dataloader)
+        f1 = f1_score(all_labels, all_preds, average="macro")
+        return avg_loss, f1
+
+    def fit(self, train_loader, val_loader, epochs=50):
+        best_f1, patience_counter = -float("inf"), 0
+
+        for epoch in range(epochs):
+            tr_loss, tr_f1 = self.train_epoch(train_loader)
+            val_loss, val_f1 = self.evaluate(val_loader)
+
+            self.train_loss.append(tr_loss)
+            self.train_f1.append(tr_f1)
+            self.val_loss.append(val_loss)
+            self.val_f1.append(val_f1)
+
+            print(f"Epoch {epoch+1}/{epochs} | "
+                  f"Train Loss: {tr_loss:.4f}, Train F1: {tr_f1:.4f} | "
+                  f"Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}")
+
+            # Early stopping on validation F1
+            if val_f1 > best_f1:
+                best_f1 = val_f1
+                patience_counter = 0
+                best_state = {
+                    "model": self.model.state_dict(),
+                    "optimizer": self.optimizer.state_dict(),
+                }
+            else:
+                patience_counter += 1
+                if patience_counter >= self.patience:
+                    print(f"Early stopping at epoch {epoch+1}")
+                    break
+
+        # Restore best model
+        self.model.load_state_dict(best_state["model"])
+
+    def classification_metrics(self, dataloader, avg_type="macro", verbose=True):
+        self.model.eval()
+        all_preds, all_labels = [], []
+
+        with torch.no_grad():
+            for X, y in dataloader:
+                X, y = X.to(self.device).float(), y.to(self.device)
+                logits = self.model(X)
+                preds = torch.argmax(logits, dim=1)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(y.cpu().numpy())
+
+        accuracy = accuracy_score(all_labels, all_preds)
+        precision = precision_score(all_labels, all_preds, average=avg_type, zero_division=0)
+        recall = recall_score(all_labels, all_preds, average=avg_type, zero_division=0)
+        f1 = f1_score(all_labels, all_preds, average=avg_type)
+        conf_mx = confusion_matrix(all_labels, all_preds)
+
+        if verbose:
+            print("\nClassification Report:\n", classification_report(all_labels, all_preds))
+
+        return accuracy, precision, recall, f1, conf_mx
