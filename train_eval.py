@@ -19,10 +19,13 @@ class Trainer:
         self.model = model.to(self.device)
         self.optimizer = optimizer
 
+        self.weights = torch.tensor([0.057, 0.057, 0.057, 0.826]).to(self.device)
         self.recon_loss = torch.nn.MSELoss()
-        self.class_loss = SF.ce_count_loss()
+        self.class_loss = SF.ce_count_loss(weight=self.weights) 
+        #The spikes at each time step [num_steps x batch_size x num_outputs]
+        #are accumulated and then passed through the Cross Entropy Loss function
 
-        self.scaler = torch.cuda.amp.GradScaler()
+        self.scaler = torch.amp.GradScaler('cuda')
 
         # Optional training parameters
         self.alpha = kwargs.get('alpha', 0.95)
@@ -37,18 +40,20 @@ class Trainer:
 
     def compute_loss(self, decoded, X, spk_out, y, num_spikes):
         cae_loss = self.recon_loss(decoded.squeeze(), X)
-        if cae_loss.item() > 0:
-            print(cae_loss.item())
+        #if cae_loss.item() > 0:
+        #    print(cae_loss.item())
         snn_loss = self.class_loss(spk_out, y)
         #total_loss = self.alpha * cae_loss + (1-self.alpha) * snn_loss\
         #             + self.Lambda * num_spikes
-        total_loss = cae_loss + snn_loss + self.Lambda * num_spikes
+        total_loss = cae_loss + snn_loss 
         return total_loss
     
     def train_epoch(self, dataloader):
         self.model.train()
         self.optimizer.zero_grad()
-        train_loss, train_acc = 0.0, 0.0
+        train_loss = 0.0
+        #train_acc = 0.0, 0.0
+        all_preds, all_labels = [], []
             
         for batch, (X, _, y) in enumerate(dataloader):
             X, y = X.squeeze().to(self.device).float(), y.squeeze().to(self.device)
@@ -66,18 +71,22 @@ class Trainer:
                 self.optimizer.zero_grad()
 
             preds = torch.argmax(spk_out.sum(0), dim=1)                  
-            train_acc += (preds == y).float().mean().item()
+            #train_acc += (preds == y).float().mean().item()
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(y.cpu().numpy())
             train_loss += loss.item()
             
         torch.cuda.empty_cache()       
-        avg_loss = train_loss / len(dataloader) / self.acc_steps    
-        avg_acc = train_acc / len(dataloader) / self.acc_steps    
-        return avg_loss, avg_acc
+        avg_loss = train_loss / len(dataloader) / self.acc_steps   
+        avg_f1 = f1_score(all_labels, all_preds, average="weighted") 
+        #avg_acc = train_acc / len(dataloader) / self.acc_steps    
+        return avg_loss, avg_f1
 
     def evaluate(self, dataloader):
         self.model.eval()
-        val_loss, val_acc = 0.0, 0.0
-        sparsity = 0.0
+        val_loss, sparsity = 0.0, 0.0
+        #val_acc = 0.0
+        all_preds, all_labels = [], []
 
         with torch.no_grad(), torch.autocast(device_type=self.device.type):
             for X, _, y in dataloader:
@@ -86,30 +95,34 @@ class Trainer:
 
                 loss = self.compute_loss(decoded, X, spk_out, y, spk_percent)
                 preds = torch.argmax(spk_out.sum(0), dim=1)
-                val_acc += (preds == y).float().mean().item()
+
+                #val_acc += (preds == y).float().mean().item()
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(y.cpu().numpy())
                 val_loss += loss.item()
                 sparsity += 1 - spk_percent.item()
 
         avg_loss = val_loss / len(dataloader)
-        avg_acc = val_acc / len(dataloader)
+        #avg_acc = val_acc / len(dataloader)
+        avg_f1 = f1_score(all_labels, all_preds, average="weighted")
         avg_sparsity = sparsity / len(dataloader)
 
-        return avg_loss, avg_acc, avg_sparsity
+        return avg_loss, avg_f1, avg_sparsity
     
     def fit(self, train_loader, val_loader, epochs):
         best_val = -float('inf')
         patience_counter = 0
 
         for epoch in range(epochs):
-            train_loss, train_acc = self.train_epoch(train_loader)
-            val_loss, val_acc, sparsity = self.evaluate(val_loader)
+            train_loss, train_f1 = self.train_epoch(train_loader)
+            val_loss, val_f1, sparsity = self.evaluate(val_loader)
             self.train_loss_ls.append(train_loss)
-            self.train_acc_ls.append(train_acc)
+            self.train_acc_ls.append(train_f1)
             self.val_loss_ls.append(val_loss)
-            self.val_acc_ls.append(val_acc)
+            self.val_acc_ls.append(val_f1)
 
-            if val_acc > best_val:
-                best_val = val_acc
+            if val_f1 > best_val:
+                best_val = val_f1
                 patience_counter = 0
                 if self.path:
                     torch.save({'model_state_dict': self.model.state_dict(),

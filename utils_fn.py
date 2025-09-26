@@ -1,6 +1,7 @@
 import numpy as np
 import scipy
 import random
+import time
 import torch
 import torch.utils.data as data_utils
 import torch.nn.functional as F
@@ -65,27 +66,9 @@ def to_complex(real, imag):
 ##########################################################
 # Function to compute the trainable parameters of a model
 ##########################################################
+### Use summary from torchinfo
 def count_params(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-################################################
-# Function to compute the size of a model in MB
-#################################################
-def model_size_in_mb(model):
-    total_params, total_buffers = 0, 0
-
-    for param in model.parameters():
-        total_params += param.numel()  # Total number of elements in all parameters    
-    for buffer in model.buffers():
-        total_buffers += buffer.numel()  # Total number of elements in all buffers
-    
-    # Each element is 4 bytes for float32 (the datatype we are using)
-    param_size_in_bytes = total_params * 4  
-    buffer_size_in_bytes = total_buffers * 4 
-    total_size_in_mb = (param_size_in_bytes + buffer_size_in_bytes) / (1024 ** 2)  # Convert to MB
-    
-    return round(total_size_in_mb, 2)
 
 
 ######################################################
@@ -135,6 +118,61 @@ def raster_plot(spikes):
     plt.grid(True, which='both', linestyle='--', linewidth=0.3)
     plt.tight_layout()
     plt.show()
+
+######################################################
+# Function to generate the delta thresholding encoding
+######################################################
+def binary_encoding(X):
+    """
+    X: list of batch tuples
+    Returns: tensor of shape (2, 232, 10, 64) with values {-1, 0, 1}
+    """
+    cir = torch.stack([el[0] for el in X], dim=0) # cir signals
+    muD = torch.stack([el[1] for el in X], dim=0)
+    Y = torch.stack([el[-1] for el in X], dim=0) # label
+
+    # compute first-order difference along dim=3 (64)
+    s_diff = cir[:, :, :, :, 1:] - cir[:, :, :, :, :-1]  # shape (8, 2, 232, 10, 63)
+
+    # repeat the first column to pad and match original shape
+    first_col = s_diff[:, :, :, :, 0:1]  # shape (8, 2, 10, 1, 232)
+    s = torch.cat([first_col, s_diff], dim=-1)  # shape (8, 2, 232, 10, 64)
+
+    # compute std over dim=3 (64), then mean over dim=2 (10)
+    std_over_time = s.std(dim=-1, keepdim=True)  # shape (8, 2, 232, 10, 1)
+    alpha = std_over_time.mean(dim=-2, keepdim=True)  # shape (8, 2, 232, 1, 1)
+
+    # thresholding
+    output = torch.zeros_like(s)
+    output[s > alpha] = 1
+    output[s < -alpha] = -1
+    
+    return (output, muD, Y)
+
+################################################
+# Function to compute inference time on test set
+################################################
+def inference_time(model, test, device):
+    """
+    Takes as input: model, test loader and device
+    Returns: average inference time for encoding and for classification
+    """
+    encoding_time, classif_time = [], []
+
+    with torch.no_grad():
+        for X, _, _ in test:
+            X = X.to(device).float()
+            
+            start_time_enc = time.time()
+            encoded, decoded = model.autoencoder(X)
+            encoding_time.append(time.time() - start_time_enc)
+
+            start_time_class = time.time()
+            clss = model.snn(encoded)
+            classif_time.append(time.time() - start_time_class)
+
+    
+    return np.mean(encoding_time), np.mean(classif_time)
 
 
 

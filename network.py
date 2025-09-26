@@ -1,5 +1,7 @@
+import math
 import torch
 from torch import nn
+import torch.nn.functional as F
 import snntorch as snn
 from snntorch import utils
 from snntorch import functional as SF
@@ -314,188 +316,258 @@ class snn_2(nn.Module):
         return torch.stack(spk_rec, dim=0)#, torch.stack(mem_rec, dim=0)
     
 #######################################
-# SNN for classif. - 1 Conv + 2 Linear
+# SNN for classif. - 1 Conv + 1 Linear
 #######################################
-class snn_conv(nn.Module):
+class snn_conv1(nn.Module):
 
-    def __init__(self, input_dim, channels, kernel, hidden, 
-                 output_dim, timesteps, surr_grad, learn_thr):
-        super(snn_conv, self).__init__()
+    def __init__(self, input_shape, channels, timesteps, kernel, stride, beta, 
+                 threshold, learn_thr, learn_beta, surr_grad):
+        super().__init__()
 
-        self.input_dim = input_dim      
-        self.kernel = kernel
+        self.input_shape = input_shape
         self.channels = channels  
-        self.hidden = hidden
-        self.output_dim = output_dim
         self.timesteps = timesteps
-        self.spike_grad = surr_grad
-        self.learn_thr = learn_thr
+        self.kernel = kernel
+        self.stride = stride    
+        self.beta = beta
+        self.threshold = threshold
+        self.learn_thr = learn_thr        
+        self.learn_beta = learn_beta
+        self.surr_grad = surr_grad
+        self.n_classes = 4
 
-        # CNN layer 1 shared
-        self.conv1 = nn.Conv1d(in_channels=input_dim, out_channels=self.channels[0], 
-                               kernel_size=self.kernel, stride=1, dilation=1,
-                               padding=0, padding_mode='zeros')
-        #self.fc_in = torch.nn.Linear(in_features=input_dim, out_features=self.hidden[0])
-        self.lif_in = snn.Leaky(beta=torch.rand(self.hidden[0]), threshold=torch.rand(self.hidden[0]),
-                                learn_beta=True, learn_threshold=self.learn_thr, spike_grad=self.spike_grad)
+        self.padding = ((self.kernel[0]-1)//2, (self.kernel[1]-1)//2, (self.kernel[2]-1)//2)
+        self.in_feat_dim = self.channels[0] * \
+                   int((self.input_shape[-3] // self.timesteps + 2*self.padding[-3] -self.kernel[-3]) / self.stride[-3] + 1) * \
+                   int((self.input_shape[-2]+ 2*self.padding[-2]-self.kernel[-2]) / self.stride[-2] + 1) * \
+                   int((self.input_shape[-1]+ 2*self.padding[-1]-self.kernel[-1]) / self.stride[-1] + 1)
 
-        # layer 2 shared
-        self.fc_hidden = torch.nn.Linear(in_features=self.hidden[0], out_features=self.hidden[1])
-        self.lif_hidden = snn.Leaky(beta=torch.rand(self.hidden[1]), threshold=torch.rand(self.hidden[1]),
-                                    learn_beta=True, learn_threshold=self.learn_thr, spike_grad=self.spike_grad)
+        # Conv layer
+        self.conv = nn.Conv3d(2, self.channels[0], self.kernel,
+                              stride=stride, padding=self.padding)
         
-        # layer to output frequencies
-        self.fc_out_freq = nn.Linear(in_features=self.hidden[1], out_features=output_dim)
-        self.li_out_freq = snn.Leaky(beta=torch.rand(output_dim), threshold=1.0, learn_beta=True,
-                                    spike_grad=self.spike_grad, reset_mechanism="none")
-        
-        # layer to output amplitudes
-        self.fc_out_amp = nn.Linear(in_features=self.hidden[1], out_features=output_dim)
-        self.li_out_amp = snn.Leaky(beta=torch.rand(output_dim), threshold=1.0, learn_beta=True,
-                                    spike_grad=self.spike_grad, reset_mechanism="none")
+        self.bn = nn.BatchNorm3d(num_features=self.channels[0])
 
-        self.sigmoid = nn.Sigmoid()
+        self.lif = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                             learn_beta=self.learn_beta,
+                             learn_threshold=self.learn_thr,
+                             spike_grad=self.surr_grad)
+
+        # linear layer
+        self.fc_out = nn.Linear(in_features=self.in_feat_dim, out_features=self.n_classes)
+
+        self.lif_out = snn.Leaky(beta=self.beta, threshold=1.0,
+                                learn_beta=self.learn_beta,
+                                spike_grad=self.surr_grad)
+
 
     def forward(self, x):
+        mem_in = self.lif.init_leaky()
+        mem_out = self.lif_out.init_leaky()
 
-        mem_1 = self.lif_in.init_leaky()
-        mem_2 = self.lif_hidden.init_leaky()
-        mem_f = self.li_out_freq.init_leaky()
-        mem_a = self.li_out_amp.init_leaky()
-
-        mem_freq = 0
-        mem_amp = 0
+        spk_rec, mem_rec = [], []
+        chunk_size = N_WIN // self.timesteps
 
         for step in range(self.timesteps):
-            x_timestep = x[:, :, step]
+            start = step * chunk_size; end = start + chunk_size
+            x_tmstp = x[:, :, start:end, :, :]
 
-            cur_in = self.fc_in(x_timestep)
-            spk_in, mem_1 = self.lif_in(cur_in, mem_1)
+            cur_in = self.bn(self.conv(x_tmstp))
+            spk_in, mem_in = self.lif(cur_in, mem_in)
 
-            cur_hidden = self.fc_hidden(spk_in)
-            spk_hidden, mem_2 = self.lif_hidden(cur_hidden, mem_2)
+            spk_in_flat = spk_in.view(spk_in.size(0), -1) # flatten
 
-            cur_out_f = self.fc_out_freq(spk_hidden)
-            spk_output_f, mem_f = self.li_out_freq(cur_out_f, mem_f)
+            cur_out = self.fc_out(spk_in_flat) 
+            spk_out, mem_out = self.lif_out(cur_out, mem_out)
+            
+            spk_rec.append(spk_out)
 
-            mem_freq += mem_f
-
-            cur_out_a = self.fc_out_amp(spk_hidden)
-            spk_output_a, mem_a = self.li_out_amp(cur_out_a, mem_a)
-
-            mem_amp += mem_a
-
-            frequencies = self.sigmoid(mem_f)
-            amplitudes = self.sigmoid(mem_a)
-
-        return frequencies, amplitudes
+        return torch.stack(spk_rec, dim=0)
 
 #######################################
-# SNN for classif. - 2 Conv + 2 Linear
+# SNN for classif. - 2 Conv + 1 Linear
 #######################################
 class snn_conv2(nn.Module):
 
-    def __init__(self, input_shape, channels, kernel_size, hidden, timesteps, 
-                 beta, threshold, learn_thr, learn_beta, surr_grad):
-        super(snn_conv2, self).__init__()
+    def __init__(self, input_shape, channels, timesteps, kernel, stride, beta, 
+                 threshold, learn_thr, learn_beta, surr_grad):
+        super().__init__()
 
-        self.input_shape = input_shape        
-        self.channels = channels
-        self.kernel_size = kernel_size
-        self.hidden = hidden
+        self.input_shape = input_shape
+        self.channels = channels  
         self.timesteps = timesteps
+        self.kernel = kernel
+        self.stride = stride    
         self.beta = beta
         self.threshold = threshold
-        self.learn_thr = learn_thr
+        self.learn_thr = learn_thr        
         self.learn_beta = learn_beta
         self.surr_grad = surr_grad
         self.n_classes = 4
 
         # Layer 1 conv
-        self.conv1 = nn.Conv3d(in_channels=self.input_shape[0],
-                               out_channels=self.channels[0],
-                               kernel_size=self.kernel_size,
-                               stride=1, padding='same')
+        self.conv1 = nn.Conv3d(in_channels=2, out_channels=self.channels[0],
+                               kernel_size=self.kernel,
+                               stride=self.stride, padding='same')
+        
+        self.bn1 = nn.BatchNorm3d(num_features=self.channels[0])
+
         self.lif1 = snn.Leaky(beta=self.beta, threshold=self.threshold,
-                              learn_beta=self.learn_beta, learn_threshold=self.learn_thr,
-                              spike_grad=self.surr_grad)
+                              learn_beta=self.learn_beta,
+                              learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
 
         # Layer 2 conv
-        self.conv2 = nn.Conv2d(in_channels=self.channels[0],
-                               out_channels=self.channels[1],
-                               kernel_size = self.kernel_size,
-                               stride=1, padding='same')
+        self.conv2 = nn.Conv3d(in_channels=self.channels[0], out_channels=self.channels[1],
+                               kernel_size = self.kernel,
+                               stride=self.stride, padding='same')
+        
+        self.bn2 = nn.BatchNorm3d(num_features=self.channels[1])
+
         self.lif2 = snn.Leaky(beta=self.beta, threshold=self.threshold,
                               learn_beta=self.learn_beta,
-                              learn_threshold=self.learn_thr,
-                              spike_grad=self.surr_grad)
+                              learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
 
-        dummy = torch.zeros(1, *self.input_shape[0:3], self.input_shape[-2], self.input_shape[-1])
-        dummy = dummy.squeeze(0)[:, 0, :, :]  # [C, H, W] example slice
-        feat_h, feat_w = self.input_shape[-2], self.input_shape[-1]  # keep original shape
-        in_feat_dim = self.channels[1] * feat_h * feat_w
+        with torch.no_grad():
+            dummy = torch.zeros(1, *self.input_shape)  # (batch=1, channels=2, D,H,W)
+            out = self.conv2(self.conv1(dummy))
 
-        # Layer 3 linear
-        self.fc1 = nn.Linear(in_features=in_feat_dim,
-                             out_features=self.hidden)
-        self.lif3 = snn.Leaky(beta=self.beta, threshold=self.threshold,
-                              learn_beta=self.learn_beta,
-                              learn_threshold=self.learn_thr,
-                              spike_grad=self.surr_grad)
+        in_feat_dim = out.numel() // self.timesteps
 
-        self.fc2 = nn.Linear(in_features=self.hidden,
-                             out_features=self.n_classes)
-        self.lif4 = snn.Leaky(beta=self.beta, threshold=1.0,
-                              learn_beta=self.learn_beta,
-                              spike_grad=self.surr_grad)
+        # Linear layer
+        self.fc_out = nn.Linear(in_features=in_feat_dim, out_features=self.n_classes)
+
+        self.lif_out = snn.Leaky(beta=self.beta, threshold=1.0,
+                                 learn_beta=self.learn_beta, spike_grad=self.surr_grad)
 
     def forward(self, x):
+        mem_in = self.lif1.init_leaky()
+        mem_hid = self.lif2.init_leaky()
+        mem_out = self.lif_out.init_leaky()
 
-        # initialize LIF states
-        mem1 = self.lif1.init_leaky()
-        mem2 = self.lif2.init_leaky()
-        mem3 = self.lif3.init_leaky()
-        mem4 = self.lif4.init_leaky()
-
-        spk_rec = []
+        spk_rec, mem_rec = [], []
         chunk_size = N_WIN // self.timesteps
 
         for step in range(self.timesteps):
-            start = step * chunk_size
-            end = start + chunk_size
-            if len(x.shape) > 5:
-                x = x.squeeze(0)
-
-            # take temporal chunk [batch, ch, time, H, W]
+            start = step * chunk_size; end = start + chunk_size
             x_tmstp = x[:, :, start:end, :, :]
-            x_tmstp = torch.mean(x_tmstp, dim=2)  # collapse time -> [B, C, H, W]
+            
+            # layer conv1
+            cur_in = self.bn1(self.conv1(x_tmstp))
+            spk_in, mem_in = self.lif1(cur_in, mem_in)
 
-            # conv1 + lif1
-            cur1 = self.conv1(x_tmstp)
-            spk1, mem1 = self.lif1(cur1, mem1)
+            # layer conv2
+            cur_hid = self.bn2(self.conv2(spk_in))
+            spk_hid, mem_hid = self.lif2(cur_hid, mem_hid)
 
-            # conv2 + lif2
-            cur2 = self.conv2(spk1)
-            spk2, mem2 = self.lif2(cur2, mem2)
+            spk_in_flat = spk_hid.view(spk_hid.size(0), -1) # flatten
 
-            # flatten
-            spk2_flat = spk2.view(spk2.size(0), -1)
-
-            # fc1 + lif3
-            cur3 = self.fc1(spk2_flat)
-            spk3, mem3 = self.lif3(cur3, mem3)
-
-            # fc2 + lif4 (output)
-            cur4 = self.fc2(spk3)
-            spk4, mem4 = self.lif4(cur4, mem4)
-
-            spk_rec.append(spk4)
-
-            # cleanup
-            del cur1, cur2, cur3, cur4, spk1, spk2, spk2_flat, spk3, spk4
+            cur_out = self.fc_out(spk_in_flat) 
+            spk_out, mem_out = self.lif_out(cur_out, mem_out)
+            
+            spk_rec.append(spk_out)
 
         return torch.stack(spk_rec, dim=0)
 
+#######################################
+# SNN for classif. - 3 Conv + 1 Linear
+#######################################
+class snn_conv3(nn.Module):
+
+    def __init__(self, input_shape, channels, timesteps, kernel, stride, beta, 
+                 threshold, learn_thr, learn_beta, surr_grad):
+        super().__init__()
+
+        self.input_shape = input_shape
+        self.channels = channels  
+        self.timesteps = timesteps
+        self.kernel = kernel
+        self.stride = stride    
+        self.beta = beta
+        self.threshold = threshold
+        self.learn_thr = learn_thr        
+        self.learn_beta = learn_beta
+        self.surr_grad = surr_grad
+        self.n_classes = 4
+
+        # Layer 1 conv
+        self.conv1 = nn.Conv3d(in_channels=2, out_channels=self.channels[0],
+                               kernel_size=self.kernel,
+                               stride=self.stride, padding='same')
+        
+        self.bn1 = nn.BatchNorm3d(num_features=self.channels[0])
+
+        self.lif1 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                              learn_beta=self.learn_beta,
+                              learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
+
+        # Layer 2 conv
+        self.conv2 = nn.Conv3d(in_channels=self.channels[0], out_channels=self.channels[1],
+                               kernel_size = self.kernel,
+                               stride=self.stride, padding='same')
+        
+        self.bn2 = nn.BatchNorm3d(num_features=self.channels[1])
+
+        self.lif2 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                              learn_beta=self.learn_beta,
+                              learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
+        
+        # Layer 3 conv
+        self.conv3 = nn.Conv3d(in_channels=self.channels[1], out_channels=self.channels[2],
+                               kernel_size = self.kernel,
+                               stride=self.stride, padding='same')
+        
+        self.bn3 = nn.BatchNorm3d(num_features=self.channels[2])
+
+        self.lif3 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+                              learn_beta=self.learn_beta,
+                              learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
+
+        with torch.no_grad():
+            dummy = torch.zeros(1, *self.input_shape) 
+            out = self.conv3(self.conv2(self.conv1(dummy)))
+
+        in_feat_dim = out.numel() // self.timesteps
+
+        # Linear layer
+        self.fc_out = nn.Linear(in_features=in_feat_dim, out_features=self.n_classes)
+
+        self.lif_out = snn.Leaky(beta=self.beta, threshold=1.0,
+                                 learn_beta=self.learn_beta, spike_grad=self.surr_grad)
+
+    def forward(self, x):
+        mem_in = self.lif1.init_leaky()
+        mem_hid = self.lif2.init_leaky()
+        mem_hid1 = self.lif3.init_leaky()
+        mem_out = self.lif_out.init_leaky()
+
+        spk_rec, mem_rec = [], []
+        chunk_size = N_WIN // self.timesteps
+
+        for step in range(self.timesteps):
+            start = step * chunk_size; end = start + chunk_size
+            x_tmstp = x[:, :, start:end, :, :]
+
+            # layer conv1
+            cur_in = self.bn1(self.conv1(x_tmstp))
+            spk_in, mem_in = self.lif1(cur_in, mem_in)
+
+            # layer conv2
+            cur_hid = self.bn2(self.conv2(spk_in))
+            spk_hid, mem_hid = self.lif2(cur_hid, mem_hid)
+
+            # layer conv3
+            cur_hid1 = self.bn3(self.conv3(spk_hid))
+            spk_hid1, mem_hid1 = self.lif3(cur_hid1, mem_hid1)
+
+            spk_in_flat = spk_hid.view(spk_hid1.size(0), -1) # flatten
+
+            cur_out = self.fc_out(spk_in_flat) 
+            spk_out, mem_out = self.lif_out(cur_out, mem_out)
+            
+            spk_rec.append(spk_out)
+
+        return torch.stack(spk_rec, dim=0)
+    
 ################################
 # SAE with 2 layers (enc + dec)    # former sae_lin
 ################################
@@ -706,77 +778,49 @@ class scae(nn.Module):
         return encoding, decoding
 
 
-#
-class scae1(nn.Module):
-    def __init__(self, channels, kernel_size, stride, beta, threshold, 
-                 surr_grad, learn_beta, learn_threshold, timesteps):
-        super(scae1, self).__init__()
+############################
+# Basic CNN from DISC paper    
+############################
 
-        self.timesteps = timesteps
-        self.channels = channels  # Now: list of layer widths, e.g., [16, 32, 64]
+class cnn_disc(nn.Module):
+    def __init__(self, num_classes=4, dropout_prob=0.2):
+        super(cnn_disc, self).__init__()
+        
+        self.conv_layers = nn.Sequential(
+            nn.Conv3d(2, 8, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            
+            nn.Conv3d(8, 16, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            
+            nn.Conv3d(16, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            
+            nn.Conv3d(32, 64, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            
+            nn.Conv3d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(),
+            
+            nn.Conv3d(128, 128, kernel_size=3, stride=2, padding=1),
+            nn.ReLU()
+        )
 
-        # Encoder
-        self.enc_convs = nn.ModuleList()
-        self.enc_bns = nn.ModuleList()
-        self.enc_lifs = nn.ModuleList()
-
-        in_channels = 2
-        for out_channels in channels:
-            self.enc_convs.append(nn.Conv3d(in_channels, out_channels, kernel_size, stride=stride, padding='same'))
-            self.enc_bns.append(nn.BatchNorm3d(out_channels))
-            self.enc_lifs.append(snn.Leaky(beta=beta, threshold=threshold, learn_beta=learn_beta, 
-                                           learn_threshold=learn_threshold, spike_grad=surr_grad))
-            in_channels = out_channels
-
-        # Bottleneck layer
-        self.enc_convs.append(nn.Conv3d(in_channels, 2, kernel_size, stride=stride, padding='same'))
-        self.enc_bns.append(nn.BatchNorm3d(2))
-        self.enc_lifs.append(snn.Leaky(beta=beta, threshold=1.0, learn_beta=learn_beta, spike_grad=surr_grad))
-
-        # Decoder
-        self.dec_convs = nn.ModuleList()
-        self.dec_bns = nn.ModuleList()
-        self.dec_lifs = nn.ModuleList()
-
-        in_channels = 2
-        for out_channels in reversed(channels):
-            self.dec_convs.append(nn.ConvTranspose3d(in_channels, out_channels, kernel_size, stride=stride, padding=[0,0,2]))
-            self.dec_bns.append(nn.BatchNorm3d(out_channels))
-            self.dec_lifs.append(snn.Leaky(beta=beta, threshold=threshold, learn_beta=learn_beta, 
-                                           learn_threshold=learn_threshold, spike_grad=surr_grad))
-            in_channels = out_channels
-
-        self.dec_convs.append(nn.ConvTranspose3d(in_channels, 2, kernel_size, stride=stride, padding=[0,0,2]))
-        self.dec_bns.append(nn.BatchNorm3d(2))
-        self.output_act = nn.Sigmoid()
-
-
+        self.dropout = nn.Dropout(dropout_prob)
+        self.dense1 = nn.Linear(128*2*2, 64)  # fixed flattened size
+        self.dense2 = nn.Linear(64, num_classes)
+        
     def forward(self, x):
-        mem_enc = [lif.init_leaky() for lif in self.enc_lifs]
-        mem_dec = [lif.init_leaky() for lif in self.dec_lifs]
+        """
+        x: (batch_size, 2, N, R, W)
+        """
+        x = self.conv_layers(x)  # shape: (batch, 128, 2, 2)
+        x = x.view(x.size(0), -1)  # flatten to (batch, 512)
+        
+        x = self.dropout(x)
+        x = F.relu(self.dense1(x))
+        x = self.dropout(x)
+        x = F.softmax(self.dense2(x), dim=1)
+        
+        return x.unsqueeze(0)
 
-        spk_rec_enc = []
-        spk_rec_dec = []
-
-        chunk_size = x.shape[2] // self.timesteps
-
-        for step in range(self.timesteps):
-            x_tmstp = x[:, :, step*chunk_size:(step+1)*chunk_size, :, :]
-
-            cur = x_tmstp
-            for i in range(len(self.enc_convs)):
-                cur = self.enc_bns[i](self.enc_convs[i](cur))
-                cur, mem_enc[i] = self.enc_lifs[i](cur, mem_enc[i])
-            spike_enc = cur
-            spk_rec_enc.append(spike_enc)
-
-            for i in range(len(self.dec_convs)):
-                cur = self.dec_bns[i](self.dec_convs[i](cur))
-                if i < len(self.dec_lifs):  # Output layer has no LIF
-                    cur, mem_dec[i] = self.dec_lifs[i](cur, mem_dec[i])
-            x_dec = self.output_act(cur)
-            spk_rec_dec.append(x_dec)
-
-        encoding = torch.stack(spk_rec_enc, dim=0)
-        decoding = torch.stack(spk_rec_dec, dim=0)
-        return encoding, decoding
