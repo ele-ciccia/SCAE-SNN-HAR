@@ -1,3 +1,0 @@
-mean_accuracy,timestamp,checkpoint_dir_name,done,training_iteration,trial_id,date,time_this_iter_s,time_total_s,pid,hostname,node_ip,time_since_restore,iterations_since_restore
-0.6381118881118881,1716777900,,False,1,5b3df_00024,2024-05-27_04-45-00,5370.935285806656,5370.935285806656,330186,cicciarella-alienware,147.162.13.167,5370.935285806656,1
-0.6363636363636365,1716781404,,True,2,5b3df_00024,2024-05-27_05-43-24,3504.109454870224,8875.04474067688,330186,cicciarella-alienware,147.162.13.167,8875.04474067688,2
