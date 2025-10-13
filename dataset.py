@@ -5,15 +5,14 @@ import pickle
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
-from dataset_utils import (
+from src.dataset_utils import (
                             complex_to_real_vector,
                             get_subj_from_filename,
                             get_cir,
                             mD_spectrum_,
                         )
 
-from config import *
-
+from src.config import *
 
 class Sparse_MD_Dataset_V2(torch.utils.data.Dataset):
     def __init__(self, filenames, p_burst=0, seed=0):

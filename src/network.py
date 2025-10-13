@@ -1,12 +1,11 @@
 import math
 import torch
 from torch import nn
-import torch.nn.functional as F
 import snntorch as snn
 from snntorch import utils
 from snntorch import functional as SF
 
-N_WIN = 232
+from src.config import N_WIN, INP_SHAPE
 
 ############################
 # Custom Heaviside function
@@ -41,13 +40,15 @@ class HeavisideCustom(nn.Module):
 class cae_2(nn.Module):
     '''Class to implement the Convolutional Autoencoder with 2 layers
         in the encoder and 2 layers in the decoder'''
-    def __init__(self, tau, channels, kernel_size, stride):
+    def __init__(self, tau, channels, kernel_size, **kwargs):
         super(cae_2, self).__init__()
 
         self.tau = tau
         self.kernel_size = kernel_size
         self.channels = channels
-        self.stride = stride
+
+        # Optional training parameter
+        self.stride = kwargs.get('stride', 1)
 
         self.encoder = nn.Sequential(# first layer
                                     nn.Conv3d(2, self.channels, self.kernel_size,
@@ -144,21 +145,23 @@ class cae_3(nn.Module):
 #########################################
 class snn_1(nn.Module):
     '''Class to implement the SNN classifier with 1 hidden linear layer'''
-    def __init__(self, input_shape, hidden, timesteps, kernel, stride,
-                 beta, threshold, learn_thr, learn_beta, surr_grad):
-        super(snn_1, self).__init__()
-
-        self.input_shape = input_shape        
+    def __init__(self, hidden, timesteps, kernel, stride,
+                 beta, threshold, surr_grad, **kwargs):
+        super().__init__()
+      
         self.hidden = hidden
         self.timesteps = timesteps
         self.kernel = kernel
         self.stride = stride
         self.beta = beta
         self.threshold = threshold
-        self.learn_thr = learn_thr
-        self.learn_beta = learn_beta
         self.surr_grad = surr_grad
         self.n_classes = 4
+
+        # Optional training parameters
+        self.input_shape = kwargs.get('input_shape', INP_SHAPE)
+        self.learn_thr = kwargs.get('learn_thr', True)
+        self.learn_beta = kwargs.get('learn_beta', True)
 
         # compute the input dimension for the first and last linear layer
         self.input_dim = int((self.input_shape[-1]-self.kernel[-1])/self.stride[-1]+1)*\
@@ -238,21 +241,23 @@ class snn_1(nn.Module):
 ##########################################
 class snn_2(nn.Module):
     '''Class to implement the SNN classifier with 2 hidden linear layers'''
-    def __init__(self, input_shape, hidden, timesteps, kernel, stride,
-                 beta, threshold, learn_thr, learn_beta, surr_grad):
-        super(snn_2, self).__init__()
-
-        self.input_shape = input_shape        
+    def __init__(self, hidden, timesteps, kernel, stride,
+                 beta, threshold, surr_grad, **kwargs):
+        super().__init__()
+     
         self.hidden = hidden
         self.timesteps = timesteps
         self.kernel = kernel
         self.stride = stride
         self.beta = beta
         self.threshold = threshold
-        self.learn_thr = learn_thr
-        self.learn_beta = learn_beta
         self.surr_grad = surr_grad
         self.n_classes = 4
+
+        # Optional training parameters
+        self.input_shape = kwargs.get('input_shape', INP_SHAPE)
+        self.learn_thr = kwargs.get('learn_thr', True)
+        self.learn_beta = kwargs.get('learn_beta', True)
 
         # compute the input dimension for the first and last linear layer
         self.input_dim = int((self.input_shape[-1]-self.kernel[-1])/self.stride[-1]+1)*\
@@ -280,8 +285,9 @@ class snn_2(nn.Module):
         
         # layer output
         self.fc_out = nn.Linear(in_features=self.in_feat_dim, out_features=self.n_classes)
-        self.lif_out = snn.Leaky(beta=self.beta, threshold=1.0,
+        self.lif_out = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                 learn_beta=self.learn_beta,
+                                learn_threshold=self.learn_thr, 
                                 spike_grad=self.surr_grad)
 
     def forward(self, x):
@@ -449,7 +455,7 @@ class snn_conv2(nn.Module):
         
         self.bn2 = nn.BatchNorm3d(num_features=self.channels[1])
 
-        self.lif2 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+        self.lif2 = snn.Leaky(beta=self.beta, threshold=1.0,
                               learn_beta=self.learn_beta,
                               learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
 
@@ -525,7 +531,7 @@ class snn_conv3(nn.Module):
         # Layer 1 conv
         self.conv1 = nn.Conv3d(in_channels=2, out_channels=self.channels[0],
                                kernel_size=self.kernel,
-                               stride=self.stride, padding='same')
+                               stride=self.stride, padding='valid')
         
         self.bn1 = nn.BatchNorm3d(num_features=self.channels[0])
 
@@ -536,9 +542,9 @@ class snn_conv3(nn.Module):
         # Layer 2 conv
         self.conv2 = nn.Conv3d(in_channels=self.channels[0], out_channels=self.channels[1],
                                kernel_size = self.kernel,
-                               stride=self.stride, padding='same')
+                               stride=self.stride, padding='valid')
         
-        self.bn2 = nn.BatchNorm3d(num_features=self.channels[1])
+        self.bn2 =  nn.BatchNorm3d(num_features=self.channels[1])
 
         self.lif2 = snn.Leaky(beta=self.beta, threshold=self.threshold,
                               learn_beta=self.learn_beta,
@@ -547,11 +553,11 @@ class snn_conv3(nn.Module):
         # Layer 3 conv
         self.conv3 = nn.Conv3d(in_channels=self.channels[1], out_channels=self.channels[2],
                                kernel_size = self.kernel,
-                               stride=self.stride, padding='same')
+                               stride=self.stride, padding='valid')
         
         self.bn3 = nn.BatchNorm3d(num_features=self.channels[2])
 
-        self.lif3 = snn.Leaky(beta=self.beta, threshold=self.threshold,
+        self.lif3 = snn.Leaky(beta=self.beta, threshold=1.0,
                               learn_beta=self.learn_beta,
                               learn_threshold=self.learn_thr, spike_grad=self.surr_grad)
 
@@ -559,12 +565,12 @@ class snn_conv3(nn.Module):
         with torch.no_grad():
             dummy = torch.zeros(1, *self.input_shape) 
             out = self.conv3(self.conv2(self.conv1(dummy)))
-        in_feat_dim = out.numel() // self.timesteps 
+        self.in_feat_dim = out.numel() // self.timesteps
 
         # Linear layer
-        self.fc_out = nn.Linear(in_features=in_feat_dim, out_features=self.n_classes)
+        self.fc_out = nn.Linear(in_features=self.in_feat_dim, out_features=self.n_classes)
 
-        self.lif_out = snn.Leaky(beta=self.beta, threshold=1.0,
+        self.lif_out = snn.Leaky(beta=self.beta, threshold=self.threshold,
                                  learn_beta=self.learn_beta, spike_grad=self.surr_grad)
 
     def forward(self, x):
@@ -573,34 +579,39 @@ class snn_conv3(nn.Module):
         mem_hid1 = self.lif3.init_leaky()
         mem_out = self.lif_out.init_leaky()
 
-        spk_rec, mem_rec = [], []
+        #spk_in_rec, spk_hid_rec, spk_hid1_rec= [], [], []
+        spk_out_rec = []
         chunk_size = N_WIN // self.timesteps
 
         for step in range(self.timesteps):
             start = step * chunk_size; end = start + chunk_size
             x_tmstp = x[:, :, start:end, :, :]
-
+        
             # layer conv1
             cur_in = self.bn1(self.conv1(x_tmstp))
             spk_in, mem_in = self.lif1(cur_in, mem_in)
+            #spk_in_rec.append(spk_in)
 
             # layer conv2
             cur_hid = self.bn2(self.conv2(spk_in))
             spk_hid, mem_hid = self.lif2(cur_hid, mem_hid)
+            #spk_hid_rec.append(spk_hid)
 
             # layer conv3
             cur_hid1 = self.bn3(self.conv3(spk_hid))
             spk_hid1, mem_hid1 = self.lif3(cur_hid1, mem_hid1)
+            #spk_hid1_rec.append(spk_hid1)
 
-            spk_in_flat = spk_hid.view(spk_hid1.size(0), -1) # flatten
+            spk_hid1_flat = spk_hid1.view(spk_hid1.size(0), -1) # flatten
 
             # layer linear
-            cur_out = self.fc_out(spk_in_flat) 
+            cur_out = self.fc_out(spk_hid1_flat) 
             spk_out, mem_out = self.lif_out(cur_out, mem_out)
             
-            spk_rec.append(spk_out)
+            spk_out_rec.append(spk_out)
 
-        return torch.stack(spk_rec, dim=0)
+        return torch.stack(spk_out_rec, dim=0)
+        #return torch.stack(spk_in_rec), torch.stack(spk_hid_rec), torch.stack(spk_hid1_rec), torch.stack(spk_out_rec)
     
 ################################
 # SAE with 2 layers (enc + dec)    # former sae_lin
@@ -721,19 +732,21 @@ class slae_2(nn.Module):
 ##################################
 class scae(nn.Module):
 
-    def __init__(self, channels, kernel_size, stride, beta, threshold, 
-                 surr_grad, learn_beta, learn_threshold, timesteps):
+    def __init__(self, channels, kernel_size, beta, threshold, 
+                 surr_grad, timesteps, **kwargs):
         super(scae, self).__init__()
 
         self.channels = channels  
         self.kernel_size = kernel_size
-        self.stride = stride    
         self.beta = beta
         self.threshold = threshold
         self.surr_grad = surr_grad
-        self.learn_beta = learn_beta
-        self.learn_thr = learn_threshold
         self.timesteps = timesteps
+
+        # Optional training parameters
+        self.stride = kwargs.get('stride', 1)
+        self.learn_thr = kwargs.get('learn_thr', True)
+        self.learn_beta = kwargs.get('learn_beta', True)
 
         ### Encoder 
         # Layer 1
@@ -781,7 +794,7 @@ class scae(nn.Module):
         
         # Record the final layer
         spk_rec_enc = []; spk_rec_dec = []
-        mem_rec_enc = []; mem_rec_dec = []
+        #mem_rec_enc = []; mem_rec_dec = []
 
         assert x.shape[2] % self.timesteps == 0
         chunk_size = x.shape[2] // self.timesteps
@@ -790,6 +803,7 @@ class scae(nn.Module):
             start = step * chunk_size; end = start + chunk_size
             x_tmstp = x[:, :, start:end, :, :]
             
+            # Encoder
             cur_enc1 = self.enc_bn1(self.enc_conv1(x_tmstp))
             spk_in, mem_in = self.enc_lif1(cur_enc1, mem_in)
             
@@ -797,90 +811,37 @@ class scae(nn.Module):
             spike_enc, mem_enc = self.enc_lif2(cur_enc2, mem_enc)
 
             spk_rec_enc.append(spike_enc)
-            mem_rec_enc.append(mem_enc)
 
+            # Decoder
             cur_dec1 = self.dec_bn1(self.dec_conv1(spike_enc))
             spk_out, mem_dec = self.dec_lif1(cur_dec1, mem_dec)
             x_dec = self.sigmoid(self.dec_bn2(self.dec_conv2(spk_out)))
 
             spk_rec_dec.append(x_dec)
-            mem_rec_dec.append(mem_dec)
 
-            encoding = torch.stack(spk_rec_enc, dim=0)
-            decoding = torch.stack(spk_rec_dec, dim=0)
+        #encoding = torch.stack(spk_rec_enc, dim=0)
+        #decoding = torch.stack(spk_rec_dec, dim=0)
+        encoding = torch.cat(spk_rec_enc, dim=2)
+        decoding = torch.cat(spk_rec_dec, dim=2)
 
         return encoding, decoding
-
 
 ############################
 # Basic CNN from DISC paper    
 ############################
 
+def conv_layer(in_channels: int, out_channels: int, stride: int) -> nn.Conv3d:
+    
+    return nn.Conv3d(in_channels, out_channels, kernel_size=3,
+                    stride=stride, padding=1, bias=False)
+
 class cnn_disc(nn.Module):
-    def __init__(self, num_classes=4, dropout_prob=0.2):
-        super().__init__()
-        
-        self.conv_layers = nn.Sequential(
-            nn.Conv3d(2, 8, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            
-            nn.Conv3d(8, 16, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            
-            nn.Conv3d(16, 32, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            
-            nn.Conv3d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            
-            nn.Conv3d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(),
-            
-            nn.Conv3d(128, 128, kernel_size=3, stride=2, padding=1),
-            nn.ReLU()
-        )
-
-        self.dropout = nn.Dropout(dropout_prob)
-        self.dense1 = nn.Linear(128*2*2, 64)  # fixed flattened size
-        self.dense2 = nn.Linear(64, num_classes)
-        
-    def forward(self, x):
-        """
-        x: (batch_size, 2, N, R, W)
-        """
-        x = self.conv_layers(x)  # shape: (batch, 128, 2, 2)
-        x = x.view(x.size(0), -1)  # flatten to (batch, 512)
-        
-        x = self.dropout(x)
-        x = F.relu(self.dense1(x))
-        x = self.dropout(x)
-        x = F.softmax(self.dense2(x), dim=1)
-        
-        return x.unsqueeze(0)
-
-
-
-def conv_layer(
-    in_channels: int, out_channels: int, stride: int = 1
-) -> nn.Conv2d:
-    return nn.Conv2d(
-        in_channels,
-        out_channels,
-        kernel_size=3,
-        stride=stride,
-        padding=1,
-        bias=False,
-        dtype=torch.double,
-    )
-
-
-class cnn_disc1(nn.Module):
     def __init__(self, num_classes=4):
         super().__init__()
 
         self.activation = nn.LeakyReLU(inplace=True)
 
-        self.conv1 = conv_layer(in_channels=1, out_channels=8, stride=2)
+        self.conv1 = conv_layer(in_channels=2, out_channels=8, stride=2)
         self.conv2 = conv_layer(in_channels=8, out_channels=16, stride=2)
         self.conv3 = conv_layer(in_channels=16, out_channels=32, stride=2)
         self.conv4 = conv_layer(in_channels=32, out_channels=64, stride=2)
@@ -917,3 +878,4 @@ class cnn_disc1(nn.Module):
         out = self.fc2(x)
         
         return out
+

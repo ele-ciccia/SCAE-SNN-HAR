@@ -1,17 +1,20 @@
 import os
 import torch
+from pathlib import Path
 from snntorch import surrogate
 
 # ===================
 # DATASET PARAMETERS
 # ===================
+PROJECT_ROOT = Path("./src").resolve().parent
+DATA_DIR = PROJECT_ROOT / "data"
 
 # Path to the raw data (folder containing directories PERSON1, PERSON2, etc.)
-RAW_DATA_PATH = os.path.join(".", "data", "raw_data")
+RAW_DATA_PATH = os.path.join(DATA_DIR, "raw_data")
 
 # Path to where the generated processed dataset will be saved
 #DATA_PATH_V2 = os.path.join(".", "data", "processed_data")
-DATA_PATH_V2 = os.path.join(".", "data", "processed_data")
+DATA_PATH_V2 = os.path.join(DATA_DIR, "processed_data")
 
 N_KEPT_BINS = 10 # how many range bins ARE kept from the original 110
 N_WIN = 232 # corresponding to 2-3s of recording, with T=0.27ms
@@ -46,3 +49,8 @@ SURROGATE_FN = surrogate.atan()
 # DEVICE CONFIGURATION
 # ====================
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# ===============
+# REPRODUCIBILITY
+# ===============
+SEEDS = [1, 22, 307, 5899, 75431]
