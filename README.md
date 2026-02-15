@@ -1,7 +1,7 @@
 ## Radar-based HAR with SNNs
 This repository contains the code to reproduce the experiments presented in the article "Sparse Spike Encoding of Channel Responses for Energy Efficient Human Activity Recognition".
 
-To install all the rewuirements, create a new environment and run from the terminal
+To install all the requirements, create a new environment and run from the terminal
 ```
 pip install -r requirements.txt
 ```
