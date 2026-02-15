@@ -23,3 +23,16 @@ You can change all the parameters in the `config.py` file inside **src** folder.
 
 src/    -> contains modules with training function, network architectures, and other utils.
 
+
+If you find the work useful, pleae cite us:
+```
+@article{cicciarella2026sparsespikeencodingchannel,
+      title={Sparse Spike Encoding of Channel Responses for Energy Efficient Human Activity Recognition}, 
+      author={Eleonora Cicciarella and Riccardo Mazzieri and Jacopo Pegoraro and Michele Rossi},
+      year={2026},
+      eprint={2602.06766},
+      archivePrefix={arXiv},
+      primaryClass={cs.NE},
+      url={https://arxiv.org/abs/2602.06766}, 
+}
+```
